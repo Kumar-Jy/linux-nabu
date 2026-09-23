@@ -115,6 +115,7 @@ struct iris_core {
 	struct completion			core_init_done;
 	u32					intr_status;
 	struct delayed_work			sys_error_handler;
+	struct delayed_work			wake_restart;
 	struct list_head			instances;
 	struct llcc_slice_desc			*llcc_slices[2];
 	bool					llcc_active;
@@ -126,5 +127,6 @@ struct iris_core {
 
 int iris_core_init(struct iris_core *core);
 void iris_core_deinit(struct iris_core *core);
+void iris_wake_restart_worker(struct work_struct *work);
 
 #endif

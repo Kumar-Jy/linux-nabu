@@ -16,6 +16,10 @@
 bool irq_pm_check_wakeup(struct irq_desc *desc)
 {
 	if (irqd_is_wakeup_armed(&desc->irq_data)) {
+		/* A platform may opt in exactly one known-phantom s2idle IRQ. */
+		if (pm_s2idle_grace_ignore_wakeup_irq(irq_desc_get_irq(desc)))
+			return false;
+
 		irqd_clear(&desc->irq_data, IRQD_WAKEUP_ARMED);
 		desc->istate |= IRQS_SUSPENDED | IRQS_PENDING;
 		desc->depth++;

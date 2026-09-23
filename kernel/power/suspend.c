@@ -14,11 +14,16 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/console.h>
+#include <linux/vt_kern.h>
 #include <linux/cpu.h>
 #include <linux/cpuidle.h>
 #include <linux/gfp.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
+#include <linux/math64.h>
+#include <linux/timekeeping.h>
+#include <clocksource/arm_arch_timer.h>
 #include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -54,6 +59,48 @@ EXPORT_SYMBOL_GPL(pm_suspend_target_state);
 unsigned int pm_suspend_global_flags;
 EXPORT_SYMBOL_GPL(pm_suspend_global_flags);
 
+/*
+ * TEST-ONLY fake sleep (nabu): the s2idle enter path never runs.  logind
+ * locks the session before writing /sys/power/state, then we blank the
+ * screen and HOLD until the power key -- with no task freeze, no device
+ * suspend, no s2idle loop.  Tasks keep running the whole time, so "wake"
+ * is just returning from the hold; nothing can wedge.  Disable with
+ * fake_sleep=0 on the kernel command line.
+ */
+static bool fake_sleep = true;
+module_param(fake_sleep, bool, 0644);
+
+static bool fake_sleep_wakeup;
+static DECLARE_WAIT_QUEUE_HEAD(fake_sleep_wq);
+/* Ignore presses within this window of hold entry: the press that triggered
+ * suspend is usually still held down.
+ */
+static unsigned long fake_sleep_min_jiffies;
+
+void fake_sleep_power_key_pressed(void)
+{
+	if (time_before(jiffies, fake_sleep_min_jiffies))
+		return;
+
+	fake_sleep_wakeup = true;
+	wake_up(&fake_sleep_wq);
+}
+EXPORT_SYMBOL_GPL(fake_sleep_power_key_pressed);
+
+static void fake_sleep_hold(void)
+{
+	fake_sleep_wakeup = false;
+	fake_sleep_min_jiffies = jiffies + msecs_to_jiffies(500);
+
+	pr_info("fake sleep: blanking screen (no s2idle, tasks keep running)\n");
+	do_blank_screen(1);
+
+	wait_event(fake_sleep_wq, fake_sleep_wakeup);
+
+	do_unblank_screen(1);
+	pr_info("fake sleep: power key seen, nothing was suspended\n");
+}
+
 static const struct platform_suspend_ops *suspend_ops;
 static const struct platform_s2idle_ops *s2idle_ops;
 static DECLARE_SWAIT_QUEUE_HEAD(s2idle_wait_head);
@@ -81,6 +128,67 @@ void s2idle_set_ops(const struct platform_s2idle_ops *ops)
 	s2idle_ops = ops;
 	unlock_system_sleep(sleep_flags);
 }
+
+#define PM_S2IDLE_GRACE_MSEC		2000
+
+static u64 s2idle_grace_end_ns;
+static bool s2idle_grace_active;
+static int s2idle_grace_wake_irq = -1;
+
+/*
+ * Time source for the grace window.  ktime_get_ns() is frozen by
+ * timekeeping_suspend() for the whole s2idle sleep and re-inserted at the
+ * frozen value on resume, so a wall-clock grace can never expire while the
+ * system is asleep and would swallow real wake events (e.g. the power key).
+ * The ARM system counter keeps counting while timekeeping is frozen, so use
+ * it to measure real elapsed time.  The ktime fallback is only for platforms
+ * without the arch timer.
+ */
+static u64 s2idle_grace_now_ns(void)
+{
+	if (arch_timer_read_counter && arch_timer_get_rate())
+		return mul_u64_u32_div(arch_timer_read_counter(),
+				       NSEC_PER_SEC, arch_timer_get_rate());
+
+	return ktime_get_ns();
+}
+
+void pm_s2idle_grace_start(void)
+{
+	if (READ_ONCE(pm_suspend_target_state) != PM_SUSPEND_TO_IDLE ||
+	    READ_ONCE(s2idle_grace_wake_irq) < 0)
+		return;
+
+	WRITE_ONCE(s2idle_grace_end_ns,
+		   s2idle_grace_now_ns() + (PM_S2IDLE_GRACE_MSEC * NSEC_PER_MSEC));
+	WRITE_ONCE(s2idle_grace_active, true);
+}
+EXPORT_SYMBOL_GPL(pm_s2idle_grace_start);
+
+void pm_s2idle_grace_end(void)
+{
+	WRITE_ONCE(s2idle_grace_active, false);
+}
+EXPORT_SYMBOL_GPL(pm_s2idle_grace_end);
+
+void pm_s2idle_set_wake_irq(int irq)
+{
+	WRITE_ONCE(s2idle_grace_wake_irq, irq);
+}
+EXPORT_SYMBOL_GPL(pm_s2idle_set_wake_irq);
+
+bool pm_s2idle_grace_ignore_wakeup_irq(unsigned int irq)
+{
+	if (!READ_ONCE(s2idle_grace_active))
+		return false;
+
+	if (READ_ONCE(pm_suspend_target_state) != PM_SUSPEND_TO_IDLE ||
+	    irq != READ_ONCE(s2idle_grace_wake_irq))
+		return false;
+
+	return s2idle_grace_now_ns() < READ_ONCE(s2idle_grace_end_ns);
+}
+EXPORT_SYMBOL_GPL(pm_s2idle_grace_ignore_wakeup_irq);
 
 static void s2idle_begin(void)
 {
@@ -622,6 +730,14 @@ int pm_suspend(suspend_state_t state)
 		return -EINVAL;
 
 	pr_info("suspend entry (%s)\n", mem_sleep_labels[state]);
+
+	if (fake_sleep && state == PM_SUSPEND_TO_IDLE) {
+		fake_sleep_hold();
+		dpm_save_errno(0);
+		pr_info("suspend exit\n");
+		return 0;
+	}
+
 	error = enter_state(state);
 	dpm_save_errno(error);
 	pr_info("suspend exit\n");

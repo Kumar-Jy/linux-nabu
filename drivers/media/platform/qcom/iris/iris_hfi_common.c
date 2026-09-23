@@ -3,6 +3,7 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/irq.h>
 #include <linux/pm_runtime.h>
 
 #include "iris_firmware.h"
@@ -144,6 +145,14 @@ int iris_hfi_pm_suspend(struct iris_core *core)
 {
 	int ret;
 
+	/*
+	 * SM8150 VPU5 has no supported power-collapse sequence.  Keep the
+	 * controller powered and report success so system suspend is not
+	 * vetoed (iris_vpu_prepare_pc() would return -EAGAIN).
+	 */
+	if (core->iris_platform_data->legacy_vpu5)
+		return 0;
+
 	ret = iris_vpu_prepare_pc(core);
 	if (ret) {
 		pm_runtime_mark_last_busy(core->dev);
@@ -166,10 +175,60 @@ error:
 	return ret;
 }
 
+void iris_wake_restart_worker(struct work_struct *work)
+{
+	struct iris_core *core =
+		container_of(work, struct iris_core, wake_restart.work);
+	int ret;
+
+	if (core->irq >= 0 &&
+	    irqd_irq_disabled(irq_get_irq_data(core->irq)))
+		enable_irq(core->irq);
+
+	iris_core_deinit(core);
+	ret = iris_core_init(core);
+	if (ret)
+		dev_err(core->dev,
+			"VPU firmware restart failed after s2idle resume: %d\n"
+			"(firmware may still be wedged; reboot clears)\n",
+			ret);
+	else
+		dev_info(core->dev,
+			 "restarted VPU firmware after s2idle resume\n");
+}
+
 int iris_hfi_pm_resume(struct iris_core *core)
 {
 	const struct iris_hfi_command_ops *ops = core->hfi_ops;
 	int ret;
+
+	/*
+	 * VPU5 stays powered through s2idle (iris_hfi_pm_suspend() is a
+	 * no-op), so the firmware does not power-collapse at wake.  Yet after
+	 * s2idle the AP-side HFI transport wedges: SESSION_INIT responses stop
+	 * arriving (-110 on every open) until a reboot.  A SYS_INIT re-send is
+	 * not enough to clear it, so reboot the VPU firmware the same way a
+	 * fresh boot does -- full teardown and re-initialization.
+	 */
+	if (core->iris_platform_data->legacy_vpu5) {
+		/*
+		 * A synchronous teardown/rebuild here hangs the whole resume
+		 * path: running inside dpm_resume means the VPU's own clock
+		 * and power domains are still resuming, and taking their
+		 * locks here deadlocks the machine before userspace returns
+		 * (observed: two hard hangs at wake on 6.14.11-16).
+		 *
+		 * Queue the restart instead.  It runs a moment after resume
+		 * in normal process context, with all power domains up, and
+		 * rebuilds the VPU exactly like the driver's own
+		 * firmware-error recovery (deinit + init), clearing the
+		 * s2idle wedge (-110 on every SESSION_INIT) before any
+		 * session can open.
+		 */
+		schedule_delayed_work(&core->wake_restart,
+				      msecs_to_jiffies(1000));
+		return 0;
+	}
 
 	ret = iris_vpu_power_on(core);
 	if (ret)

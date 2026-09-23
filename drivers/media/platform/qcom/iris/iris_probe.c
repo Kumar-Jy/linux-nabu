@@ -237,6 +237,7 @@ static int iris_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&core->instances);
 	INIT_DELAYED_WORK(&core->sys_error_handler, iris_sys_error_handler);
+	INIT_DELAYED_WORK(&core->wake_restart, iris_wake_restart_worker);
 
 	core->reg_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(core->reg_base))

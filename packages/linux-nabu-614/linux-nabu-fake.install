@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# linux-nabu-fake.install - regenerate the fake-sleep TEST UKI.
+# Deliberately does NOT touch the real arch-linux-nabu(.old).efi chain at
+# all: it only builds /boot/efi/EFI/arch/arch-linux-nabu-fake.efi from the
+# fake variant's own preset, so the real kernel packages are untouched.
+
+regenerate_uki() {
+    # Only run on a real device; skip inside container/image builds.
+    if ! mountpoint -q /boot/efi 2>/dev/null; then
+        return 0
+    fi
+
+    # Module deps for the fake kernel dir, then build ONLY the fake preset.
+    for d in /usr/lib/modules/*; do
+        [ -d "$d" ] || continue
+        case "$(basename "$d")" in
+            6.14.11-11) depmod -a 6.14.11-11 2>/dev/null || true ;;
+        esac
+    done
+
+    if [ -f /etc/mkinitcpio.d/linux-nabu-fake.preset ]; then
+        mkinitcpio -P linux-nabu-fake
+    fi
+}
+
+post_install() {
+    regenerate_uki
+}
+
+post_upgrade() {
+    regenerate_uki
+}
+
+pre_upgrade() {
+    :
+}
+
+post_remove() {
+    :
+}
