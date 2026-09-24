@@ -9,7 +9,6 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <linux/sizes.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
@@ -174,52 +173,6 @@ static const struct snd_compr_codec_caps q6asm_compr_caps = {
 	.descriptor[0].formats = 0,
 };
 
-/* PCM V2 capture returns 24 valid bits in the high bits of each word.
- * Convert Q31 to ALSA S24_LE (Q23) before exposing the completed period,
- * including to mmap users. The low eight DSP bits are padding.
- */
-static void q6asm_capture_s24(__le32 *samples, unsigned int count)
-{
-	unsigned int i;
-
-	for (i = 0; i < count; i++)
-		samples[i] = cpu_to_le32((s32)le32_to_cpu(samples[i]) >> 8);
-}
-
-
-/* Fixed PCM storage survives hw_free, unlike runtime->dma_area. */
-static bool q6asm_capture_period(struct q6asm_dai_rtd *prtd, u32 token)
-{
-	struct snd_pcm_substream *substream = prtd->substream;
-	struct snd_dma_buffer *buffer = &substream->dma_buffer;
-	unsigned long flags;
-	size_t offset;
-	bool completed = false;
-
-	snd_pcm_stream_lock_irqsave(substream, flags);
-	/* Discard late completions after STOP/hw_free, including DSP flushes. */
-	if (!snd_pcm_running(substream) || !buffer->area ||
-	    !prtd->pcm_count ||
-	    prtd->pcm_count % (prtd->bits_per_sample == 24 ? 4 : 2) ||
-	    token >= prtd->periods)
-		goto unlock;
-
-	/* Bound the token before multiplication, and the period before access. */
-	if (prtd->pcm_size > buffer->bytes ||
-	    prtd->pcm_count > prtd->pcm_size ||
-	    token >= prtd->pcm_size / prtd->pcm_count)
-		goto unlock;
-
-	offset = (size_t)token * prtd->pcm_count;
-	if (prtd->bits_per_sample == 24)
-		q6asm_capture_s24((__le32 *)(buffer->area + offset),
-				  prtd->pcm_count / sizeof(__le32));
-	completed = true;
-unlock:
-	snd_pcm_stream_unlock_irqrestore(substream, flags);
-	return completed;
-}
-
 static void event_handler(uint32_t opcode, uint32_t token,
 			  void *payload, void *priv)
 {
@@ -245,8 +198,6 @@ static void event_handler(uint32_t opcode, uint32_t token,
 		break;
 		}
 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
-		if (!q6asm_capture_period(prtd, token))
-			break;
 		prtd->pcm_irq_pos += prtd->pcm_count;
 		snd_pcm_period_elapsed(substream);
 		if (prtd->state == Q6ASM_STREAM_RUNNING)
@@ -296,12 +247,9 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
 				       prtd->periods);
 
 	if (ret < 0) {
-		dev_err(dev,
-			"DSP map failed: stream=%d addr=%pa buffer=%u period=%u periods=%u allocated=%zu rc=%d\n",
-			substream->stream, &prtd->phys, prtd->pcm_size,
-			prtd->pcm_count, prtd->periods,
-			substream->dma_buffer.bytes, ret);
-		return ret;
+		dev_err(dev, "Audio Start: Buffer Allocation failed rc = %d\n",
+							ret);
+		return -ENOMEM;
 	}
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -377,12 +325,8 @@ static int q6asm_dai_trigger(struct snd_soc_component *component,
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		prtd->state = Q6ASM_STREAM_STOPPED;
-		/* EOS terminates playback data; a capture session has no input
-		 * EOS to render. Pause capture until prepare/close tears it down.
-		 */
 		ret = q6asm_cmd_nowait(prtd->audio_client, prtd->stream_id,
-				       substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
-				       CMD_EOS : CMD_PAUSE);
+				       CMD_EOS);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
@@ -472,12 +416,9 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 
 	runtime->private_data = prtd;
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
-	else
-		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_capture);
+	snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
 
-	runtime->dma_bytes = runtime->hw.buffer_bytes_max;
+	runtime->dma_bytes = q6asm_dai_hardware_playback.buffer_bytes_max;
 
 
 	if (pdata->sid < 0)
@@ -1236,15 +1177,6 @@ static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 {
 	struct snd_pcm *pcm = rtd->pcm;
 	size_t size = q6asm_dai_hardware_playback.buffer_bytes_max;
-
-	/* Nabu's DSP rejects a map whose exclusive end reaches the next
-	 * 32-bit address window. Keep one DSP page after the largest PCM
-	 * mapping so a DMA allocation at the top of the IOVA aperture is safe.
-	 * The advertised PCM limits stay unchanged; this tail is never sent
-	 * to the DSP. Other machines keep their original allocation size.
-	 */
-	if (of_machine_is_compatible("xiaomi,nabu"))
-		size += SZ_4K;
 
 	return snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
 					    component->dev, size);
