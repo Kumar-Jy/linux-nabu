@@ -490,8 +490,16 @@ static int __maybe_unused cci_resume_runtime(struct device *dev)
 	int ret;
 
 	ret = cci_enable_clocks(cci);
-	if (ret)
-		return ret;
+	if (ret) {
+		/*
+		 * SM8150: the CCI clock controller may not restore its PLL state
+		 * after s2idle, making clk_bulk_prepare_enable() time out.  Never
+		 * let that abort system resume; leave CCI off and continue.
+		 */
+		dev_warn(dev, "cci clock enable failed (%d); leaving CCI off after resume\n",
+			 ret);
+		return 0;
+	}
 
 	/*
 	 * The CCI power domain may have been switched off while the device was
