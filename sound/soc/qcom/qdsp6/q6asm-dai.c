@@ -173,6 +173,49 @@ static const struct snd_compr_codec_caps q6asm_compr_caps = {
 	.descriptor[0].formats = 0,
 };
 
+/* PCM V2 capture returns 24-bit samples left-justified: the DSP puts the
+ * 24 valid bits in bits 31..8 of each 32-bit word and leaves the low byte
+ * as padding. ALSA and userspace expect S24_LE (bits 23..0), so shift the
+ * completed period down before the app sees it, including mmap users.
+ */
+static void q6asm_capture_s24(__le32 *samples, unsigned int count)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++)
+		samples[i] = cpu_to_le32((s32)le32_to_cpu(samples[i]) >> 8);
+}
+
+/* Convert the just-completed capture period in place. Only 24-bit
+ * captures need this; 16-bit samples arrive right-justified. The token
+ * identifies which ring buffer period the DSP filled, so the bounds are
+ * checked against the fixed buffer before touching it.
+ */
+static void q6asm_capture_shift(struct q6asm_dai_rtd *prtd, u32 token)
+{
+	struct snd_dma_buffer *buffer = &prtd->substream->dma_buffer;
+	size_t offset;
+
+	if (prtd->bits_per_sample != 24)
+		return;
+
+	if (!buffer->area || !prtd->pcm_count || !prtd->periods ||
+	    prtd->pcm_count % sizeof(__le32))
+		return;
+
+	if (prtd->pcm_size > buffer->bytes ||
+	    prtd->pcm_count > prtd->pcm_size ||
+	    token >= prtd->pcm_size / prtd->pcm_count)
+		return;
+
+	offset = (size_t)token * prtd->pcm_count;
+	if (offset + prtd->pcm_count > buffer->bytes)
+		return;
+
+	q6asm_capture_s24((__le32 *)(buffer->area + offset),
+			  prtd->pcm_count / sizeof(__le32));
+}
+
 static void event_handler(uint32_t opcode, uint32_t token,
 			  void *payload, void *priv)
 {
@@ -198,6 +241,7 @@ static void event_handler(uint32_t opcode, uint32_t token,
 		break;
 		}
 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
+		q6asm_capture_shift(prtd, token);
 		prtd->pcm_irq_pos += prtd->pcm_count;
 		snd_pcm_period_elapsed(substream);
 		if (prtd->state == Q6ASM_STREAM_RUNNING)
