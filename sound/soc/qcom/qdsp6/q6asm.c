@@ -644,6 +644,8 @@ static int32_t q6asm_stream_callback(struct apr_device *adev,
 		case ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2:
 		case ASM_DATA_CMD_REMOVE_INITIAL_SILENCE:
 		case ASM_DATA_CMD_REMOVE_TRAILING_SILENCE:
+		case ASM_DATA_CMD_READ_V2:
+		case ASM_DATA_CMD_EOS:
 			if (result->status != 0) {
 				dev_err(ac->dev,
 					"cmd = 0x%x returned error = 0x%x\n",
