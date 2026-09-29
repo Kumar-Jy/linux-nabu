@@ -9,6 +9,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/sizes.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
@@ -369,8 +370,12 @@ static int q6asm_dai_trigger(struct snd_soc_component *component,
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		prtd->state = Q6ASM_STREAM_STOPPED;
+		/* EOS terminates playback data; a capture session has no input
+		 * EOS to render. Pause capture until prepare/close tears it down.
+		 */
 		ret = q6asm_cmd_nowait(prtd->audio_client, prtd->stream_id,
-				       CMD_EOS);
+				       substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+				       CMD_EOS : CMD_PAUSE);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
@@ -460,9 +465,12 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 
 	runtime->private_data = prtd;
 
-	snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	else
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_capture);
 
-	runtime->dma_bytes = q6asm_dai_hardware_playback.buffer_bytes_max;
+	runtime->dma_bytes = runtime->hw.buffer_bytes_max;
 
 
 	if (pdata->sid < 0)
@@ -1221,6 +1229,15 @@ static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 {
 	struct snd_pcm *pcm = rtd->pcm;
 	size_t size = q6asm_dai_hardware_playback.buffer_bytes_max;
+
+	/* Nabu's DSP rejects a map whose exclusive end reaches the next
+	 * 32-bit address window. Keep one DSP page after the largest PCM
+	 * mapping so a DMA allocation at the top of the IOVA aperture is safe.
+	 * The advertised PCM limits stay unchanged; this tail is never sent
+	 * to the DSP. Other machines keep their original allocation size.
+	 */
+	if (of_machine_is_compatible("xiaomi,nabu"))
+		size += SZ_4K;
 
 	return snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
 					    component->dev, size);

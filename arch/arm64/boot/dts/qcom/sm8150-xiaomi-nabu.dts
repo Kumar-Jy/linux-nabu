@@ -798,6 +798,7 @@
 	model = "Xiaomi Pad 5";
 
 	audio-routing =	"RX_BIAS", "MCLK",
+		"AIF1 CAP", "MCLK",
 		"AMIC1", "MIC BIAS3",
 		"AMIC3", "MIC BIAS4",
 		"MultiMedia1 Playback", "BR SPK",
