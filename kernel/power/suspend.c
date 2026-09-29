@@ -86,7 +86,7 @@ void s2idle_set_ops(const struct platform_s2idle_ops *ops)
 	unlock_system_sleep(sleep_flags);
 }
 
-#define PM_S2IDLE_GRACE_MSEC		2000
+#define PM_S2IDLE_GRACE_MSEC		300
 
 static u64 s2idle_grace_end_ns;
 static bool s2idle_grace_active;
