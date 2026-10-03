@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - 614-test
+      - 6.14
   workflow_dispatch:
     inputs:
       build_linux_nabu_614:
@@ -59,7 +60,8 @@ jobs:
           pkg="${{ matrix.pkg }}"
           pkgver=$(grep -m1 '^pkgver=' "packages/$pkg/PKGBUILD" | sed 's/.*=//' | tr -d '"')
           pkgrel=$(grep -m1 '^pkgrel=' "packages/$pkg/PKGBUILD" | sed 's/.*=//' | tr -d '"')
-          sig="$pkg-$pkgver-$pkgrel"
+          sha=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+          sig="$pkg-$pkgver-$pkgrel-$sha"
           echo "sig=$sig" >> "$GITHUB_OUTPUT"
           echo "Source signature: $sig"
 
