@@ -1051,4 +1051,14 @@ config CHARGER_LN8000
 	help
 	  Say Y here to enable the LionSemi LN8000 charger driver.
 
+config CHARGER_IDTP9418
+	tristate "idtp9418 Wireless Power Charger driver"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable the idtp9418 Wireless Power Charger driver.
+	  It enables the control and monitoring of the reverse wireless power
+	  charging used in some Xiaomi tablet devices for recharging
+	  the stylus.
+
 endif # POWER_SUPPLY
