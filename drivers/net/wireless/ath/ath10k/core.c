@@ -16,6 +16,7 @@
 #include <linux/nvmem-consumer.h>
 #include <linux/etherdevice.h>
 #include <crypto/hash.h>
+#include <crypto/sha2.h>
 #include <asm/byteorder.h>
 
 #include "core.h"
