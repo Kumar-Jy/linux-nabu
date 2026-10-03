@@ -22,6 +22,11 @@
  * alternate register layout.
  */
 
+#define CSID_HW_VERSION		0x0
+#define		HW_VERSION_STEPPING	0
+#define		HW_VERSION_REVISION	16
+#define		HW_VERSION_GENERATION	28
+
 #define CSID_RST_STROBES	0x10
 #define		RST_STROBES	0
 
@@ -66,6 +71,10 @@
 #define		CSI2_RX_CFG1_CGC_MODE				7
 #define			CGC_MODE_DYNAMIC_GATING		0
 #define			CGC_MODE_ALWAYS_ON		1
+
+#define CSID_CSI2_RX_TOTAL_PKTS_RCVD	0x160
+#define CSID_CSI2_RX_STATS_ECC		0x164
+#define CSID_CSI2_RX_TOTAL_CRC_ERR	0x168
 
 #define CSID_RDI_CFG0(rdi)			((csid_is_lite(csid) ? 0x200 : 0x300) \
 						 + 0x100 * (rdi))
@@ -118,6 +127,18 @@
 #define CSID_RDI_RPP_LINE_DROP_PATTERN(rdi)		((csid_is_lite(csid) ? 0x22C : 0x32C)\
 							+ 0x100 * (rdi))
 #define CSID_RDI_RPP_LINE_DROP_PERIOD(rdi)		((csid_is_lite(csid) ? 0x230 : 0x330)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_STATUS(rdi)			((csid_is_lite(csid) ? 0x250 : 0x350)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_FORMAT_MEASURE0(rdi)		((csid_is_lite(csid) ? 0x278 : 0x378)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_FORMAT_MEASURE1(rdi)		((csid_is_lite(csid) ? 0x27c : 0x37c)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_FORMAT_MEASURE2(rdi)		((csid_is_lite(csid) ? 0x280 : 0x380)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_BYTE_CNTR_PING(rdi)		((csid_is_lite(csid) ? 0x2e0 : 0x3e0)\
+							+ 0x100 * (rdi))
+#define CSID_RDI_BYTE_CNTR_PONG(rdi)		((csid_is_lite(csid) ? 0x2e4 : 0x3e4)\
 							+ 0x100 * (rdi))
 
 #define CSID_TPG_CTRL		0x600
@@ -326,9 +347,33 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
 {
 	struct csid_testgen_config *tg = &csid->testgen;
 	u8 i;
+
+	if (!enable)
+		dev_info(csid->camss->dev,
+			 "CSID%u stop: RX cfg=%08x/%08x packets=%08x ecc=%08x crc=%08x\n",
+			 csid->id,
+			 readl_relaxed(csid->base + CSID_CSI2_RX_CFG0),
+			 readl_relaxed(csid->base + CSID_CSI2_RX_CFG1),
+			 readl_relaxed(csid->base + CSID_CSI2_RX_TOTAL_PKTS_RCVD),
+			 readl_relaxed(csid->base + CSID_CSI2_RX_STATS_ECC),
+			 readl_relaxed(csid->base + CSID_CSI2_RX_TOTAL_CRC_ERR));
+
 	/* Loop through all enabled VCs and configure stream for each */
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
 		if (csid->phy.en_vc & BIT(i)) {
+			if (!enable)
+				dev_info(csid->camss->dev,
+					 "CSID%u RDI%u stop: cfg=%08x ctrl=%08x status=%08x measure=%08x/%08x/%08x bytes=%08x/%08x\n",
+					 csid->id, i,
+					 readl_relaxed(csid->base + CSID_RDI_CFG0(i)),
+					 readl_relaxed(csid->base + CSID_RDI_CTRL(i)),
+					 readl_relaxed(csid->base + CSID_RDI_STATUS(i)),
+					 readl_relaxed(csid->base + CSID_RDI_FORMAT_MEASURE0(i)),
+					 readl_relaxed(csid->base + CSID_RDI_FORMAT_MEASURE1(i)),
+					 readl_relaxed(csid->base + CSID_RDI_FORMAT_MEASURE2(i)),
+					 readl_relaxed(csid->base + CSID_RDI_BYTE_CNTR_PING(i)),
+					 readl_relaxed(csid->base + CSID_RDI_BYTE_CNTR_PONG(i)));
+
 			if (tg->enabled)
 				__csid_configure_testgen(csid, enable, i);
 
@@ -344,6 +389,29 @@ static int csid_configure_testgen_pattern(struct csid_device *csid, s32 val)
 		csid->testgen.mode = val;
 
 	return 0;
+}
+
+/*
+ * csid_hw_version - CSID hardware version query
+ * @csid: CSID device
+ *
+ * Return HW version or error
+ */
+static u32 csid_hw_version(struct csid_device *csid)
+{
+	u32 hw_version;
+	u32 hw_gen;
+	u32 hw_rev;
+	u32 hw_step;
+
+	hw_version = readl_relaxed(csid->base + CSID_HW_VERSION);
+	hw_gen = (hw_version >> HW_VERSION_GENERATION) & 0xF;
+	hw_rev = (hw_version >> HW_VERSION_REVISION) & 0xFFF;
+	hw_step = (hw_version >> HW_VERSION_STEPPING) & 0xFFFF;
+	dev_dbg(csid->camss->dev, "CSID HW Version = %u.%u.%u\n",
+		hw_gen, hw_rev, hw_step);
+
+	return hw_version;
 }
 
 /*
@@ -413,6 +481,38 @@ static int csid_reset(struct csid_device *csid)
 	}
 
 	return 0;
+}
+
+static u32 csid_src_pad_code(struct csid_device *csid, u32 sink_code,
+			     unsigned int match_format_idx, u32 match_code)
+{
+	switch (sink_code) {
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+	{
+		u32 src_code[] = {
+			MEDIA_BUS_FMT_SBGGR10_1X10,
+			MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE,
+		};
+
+		return csid_find_code(src_code, ARRAY_SIZE(src_code),
+				      match_format_idx, match_code);
+	}
+	case MEDIA_BUS_FMT_Y10_1X10:
+	{
+		u32 src_code[] = {
+			MEDIA_BUS_FMT_Y10_1X10,
+			MEDIA_BUS_FMT_Y10_2X8_PADHI_LE,
+		};
+
+		return csid_find_code(src_code, ARRAY_SIZE(src_code),
+				      match_format_idx, match_code);
+	}
+	default:
+		if (match_format_idx > 0)
+			return 0;
+
+		return sink_code;
+	}
 }
 
 static void csid_subdev_init(struct csid_device *csid)

@@ -219,10 +219,60 @@ static int video_check_format(struct camss_video *video)
 	    pix->height != sd_pix->height ||
 	    pix->width != sd_pix->width ||
 	    pix->num_planes != sd_pix->num_planes ||
-	    pix->field != format.fmt.pix_mp.field)
+	    pix->field != format.fmt.pix_mp.field) {
+		dev_err(video->camss->dev,
+			"Video format mismatch: video %ux%u/%p4cc planes %u field %u, subdev %ux%u/%p4cc planes %u field %u\n",
+			pix->width, pix->height, &pix->pixelformat,
+			pix->num_planes, pix->field,
+			sd_pix->width, sd_pix->height, &sd_pix->pixelformat,
+			sd_pix->num_planes, sd_pix->field);
 		return -EPIPE;
+	}
 
 	return 0;
+}
+
+/*
+ * Stop every subdevice that precedes @stop in the video pipeline.  This is
+ * also used to unwind a partially started pipeline, in which case @stop is
+ * the subdevice whose stream-on callback failed and must not be stopped a
+ * second time.
+ */
+static int video_stop_subdevices(struct camss_video *video,
+				 const struct media_entity *stop)
+{
+	struct video_device *vdev = &video->vdev;
+	struct media_entity *entity = &vdev->entity;
+	struct media_pad *pad;
+	struct v4l2_subdev *subdev;
+	int first_error = 0;
+	int ret;
+
+	while (1) {
+		pad = &entity->pads[0];
+		if (!(pad->flags & MEDIA_PAD_FL_SINK))
+			break;
+
+		pad = media_pad_remote_pad_first(pad);
+		if (!pad || !is_media_entity_v4l2_subdev(pad->entity))
+			break;
+
+		entity = pad->entity;
+		if (entity == stop)
+			break;
+
+		subdev = media_entity_to_v4l2_subdev(entity);
+		ret = v4l2_subdev_call(subdev, video, s_stream, 0);
+		if (ret && ret != -ENOIOCTLCMD) {
+			dev_err(video->camss->dev,
+				"Failed to stop %s stream: %d\n",
+				subdev->name, ret);
+			if (!first_error)
+				first_error = ret;
+		}
+	}
+
+	return first_error;
 }
 
 static int video_start_streaming(struct vb2_queue *q, unsigned int count)
@@ -258,8 +308,13 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
 		subdev = media_entity_to_v4l2_subdev(entity);
 
 		ret = v4l2_subdev_call(subdev, video, s_stream, 1);
-		if (ret < 0 && ret != -ENOIOCTLCMD)
+		if (ret < 0 && ret != -ENOIOCTLCMD) {
+			dev_err(video->camss->dev,
+				"Failed to start %s stream: %d\n",
+				subdev->name, ret);
+			video_stop_subdevices(video, entity);
 			goto error;
+		}
 	}
 
 	return 0;
@@ -277,31 +332,9 @@ static void video_stop_streaming(struct vb2_queue *q)
 {
 	struct camss_video *video = vb2_get_drv_priv(q);
 	struct video_device *vdev = &video->vdev;
-	struct media_entity *entity;
-	struct media_pad *pad;
-	struct v4l2_subdev *subdev;
-	int ret;
 
-	entity = &vdev->entity;
-	while (1) {
-		pad = &entity->pads[0];
-		if (!(pad->flags & MEDIA_PAD_FL_SINK))
-			break;
-
-		pad = media_pad_remote_pad_first(pad);
-		if (!pad || !is_media_entity_v4l2_subdev(pad->entity))
-			break;
-
-		entity = pad->entity;
-		subdev = media_entity_to_v4l2_subdev(entity);
-
-		ret = v4l2_subdev_call(subdev, video, s_stream, 0);
-
-		if (ret) {
-			dev_err(video->camss->dev, "Video pipeline stop failed: %d\n", ret);
-			return;
-		}
-	}
+	/* Keep unwinding even if one subdevice reports a stop error. */
+	video_stop_subdevices(video, NULL);
 
 	video_device_pipeline_stop(vdev);
 
