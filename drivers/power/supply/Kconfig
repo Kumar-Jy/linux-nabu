@@ -1088,4 +1088,13 @@ config CHARGER_LN8000
 	help
 	  Say Y here to enable the LionSemi LN8000 charger driver.
 
+config CHARGER_IDTP9418
+	tristate "IDTP9418 Wireless Power Charger driver"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say M or Y here to enable support for the Renesas/IDT P9418
+	  wireless power charger monitor IC used for stylus pen charging
+	  on the Xiaomi Pad 5 (nabu).
+
 endif # POWER_SUPPLY

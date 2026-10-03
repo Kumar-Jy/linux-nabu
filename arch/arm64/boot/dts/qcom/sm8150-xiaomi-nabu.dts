@@ -501,36 +501,11 @@
 		};
 	};
 
-	ln8000_charger@51 {
-		compatible = "lionsemi,ln8000";
-		reg = <0x51>;
-
-		status = "disabled";
-
-		irq-gpios = <&tlmm 36 0x2002>;
-
-		usb-tcpm = <&pm8150b_typec>;
-
-		ln8000_charger,bat-ovp-threshold = <4560>;
-		ln8000_charger,bat-ovp-alarm-threshold = <4525>;
-		ln8000_charger,bus-ovp-threshold = <13000>;
-		ln8000_charger,bus-ovp-alarm-threshold = <11000>;
-		ln8000_charger,bus-ocp-threshold = <3750>;
-		ln8000_charger,bus-ocp-alarm-threshold = <3500>;
-		ln8000_charger,ntc-alarm-cfg  = <226>;
-
-		ln8000_charger,tdie-prot-disable;
-		ln8000_charger,tbus-mon-disable;
-		ln8000_charger,tbat-mon-disable;
-		ln8000_charger,iin-ocp-disable;
-		ln8000_charger,iin-reg-disable;
-		ln8000_charger,tdie-reg-disable;
-		ln8000_charger,vbat-reg-disable;
-	};
 };
 
 &i2c7 {
 	status = "okay";
+	clock-frequency = <400000>;
 
 	cs35l41_br: cs35l41@40 {
 		compatible = "cirrus,cs35l41";
@@ -684,12 +659,12 @@
 	status = "okay";
 	monitored-battery = <&battery>;
 	power-supplies = <&pm8150b_charger>;
-	//power-supplies = <&ln8000_charger>;
 };
 
 &pm8150b_charger {
 	status = "okay";
 	monitored-battery = <&battery>;
+	usb-tcpm = <&pm8150b_typec>;
 };
 
 &pm8150b_typec {
@@ -713,7 +688,7 @@
 					 PDO_FIXED_USB_COMM |
 					 PDO_FIXED_DATA_SWAP)>;
 
-		op-sink-microwatt = <10000000>;
+		op-sink-microwatt = <15000000>;
 
 		ports {
 			#address-cells = <1>;
@@ -756,6 +731,8 @@
 };
 
 &pon_pwrkey {
+	/* PM8150 glitches this wake line as Nabu enters s2idle. */
+	qcom,s2idle-wake-grace;
 	status = "okay";
 };
 
@@ -821,6 +798,7 @@
 	model = "Xiaomi Pad 5";
 
 	audio-routing =	"RX_BIAS", "MCLK",
+		"AIF1 CAP", "MCLK",
 		"AMIC1", "MIC BIAS3",
 		"AMIC3", "MIC BIAS4",
 		"MultiMedia1 Playback", "BR SPK",
@@ -1019,6 +997,81 @@
 			bias-pull-down;
 		};
 	};
+
+	hall {
+		hall_intr3: hall_intr3 {
+			mux {
+				pins = "gpio101";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio101";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		hall_intr4: hall_intr4 {
+			mux {
+				pins = "gpio134";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio134";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+	};
+
+	idt {
+		idt_int: idt_int {
+			mux {
+				pins = "gpio95";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio95";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		txon_enable: txon_enable {
+			mux {
+				pins = "gpio3";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio3";
+				drive-strength = <16>;
+				bias-disable;
+				bias-pull-down;
+				output-low;
+			};
+		};
+
+		reverse_boost_enable: reverse_boost_enable {
+			mux {
+				pins = "gpio47";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio47";
+				drive-strength = <16>;
+				bias-pull-down;
+				output-low;
+			};
+		};
+	};
 };
 
 &uart2 {
@@ -1055,6 +1108,19 @@
 	vccq-max-microamp = <700000>;
 	vccq2-supply = <&vreg_s4a_1p8>;
 	vccq2-max-microamp = <750000>;
+
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+	freq-table-hz =
+		<37500000 300000000>,
+		<0 0>,
+		<0 0>,
+		<37500000 300000000>,
+		<37500000 300000000>,
+		<0 0>,
+		<0 0>,
+		<0 0>,
+		<0 0>;
 };
 
 &ufs_mem_phy {
@@ -1157,3 +1223,25 @@
                reg = <0xbc 0x4>;
        };
 };
+
+&i2c17 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	idtp9418: idtp9418@3b {
+		compatible = "idt,p9418";
+		reg = <0x3b>;
+		status = "okay";
+		idt,irq-gpios = <&tlmm 95 GPIO_ACTIVE_HIGH>;
+		idt,hall3-gpios = <&tlmm 101 GPIO_ACTIVE_HIGH>;
+		idt,hall4-gpios = <&tlmm 134 GPIO_ACTIVE_HIGH>;
+		idt,reverse-enable-gpios = <&tlmm 3 GPIO_ACTIVE_HIGH>;
+		idt,reverse-boost-enable-gpios = <&tlmm 47 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&idt_int &hall_intr3 &hall_intr4 &txon_enable &reverse_boost_enable>;
+	};
+};
+
+#include "sm8150-xiaomi-nabu-camera.dtsi"
+#include "sm8150-xiaomi-nabu-iris.dtsi"
+#include "sm8150-xiaomi-nabu-sensors.dtsi"
