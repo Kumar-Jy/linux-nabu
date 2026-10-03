@@ -654,6 +654,13 @@ static int32_t q6asm_stream_callback(struct apr_device *adev,
 				goto done;
 			}
 			break;
+		case ASM_DATA_CMD_READ_V2:
+		case ASM_DATA_CMD_EOS:
+			/* Asynchronous data commands; status 0xa (ADSP_ENOTREADY)
+			 * is normal while stream is preparing before RUN.
+			 */
+			ret = 0;
+			goto done;
 		default:
 			dev_err(ac->dev, "command[0x%x] not expecting rsp\n",
 				result->opcode);

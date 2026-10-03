@@ -199,6 +199,18 @@ static void psci_idle_init_syscore(void)
 		register_syscore_ops(&psci_idle_syscore_ops);
 }
 
+u32 psci_idle_suspend_param(void)
+{
+	return this_cpu_read(psci_domain_state.state);
+}
+EXPORT_SYMBOL_GPL(psci_idle_suspend_param);
+
+bool psci_cpuidle_uses_syscore(void)
+{
+	return psci_cpuidle_use_syscore;
+}
+EXPORT_SYMBOL_GPL(psci_cpuidle_uses_syscore);
+
 static void psci_idle_init_cpuhp(void)
 {
 	int err;

@@ -9,6 +9,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/sizes.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
@@ -173,6 +174,49 @@ static const struct snd_compr_codec_caps q6asm_compr_caps = {
 	.descriptor[0].formats = 0,
 };
 
+/* PCM V2 capture returns 24-bit samples left-justified: the DSP puts the
+ * 24 valid bits in bits 31..8 of each 32-bit word and leaves the low byte
+ * as padding. ALSA and userspace expect S24_LE (bits 23..0), so shift the
+ * completed period down before the app sees it, including mmap users.
+ */
+static void q6asm_capture_s24(__le32 *samples, unsigned int count)
+{
+	unsigned int i;
+
+	for (i = 0; i < count; i++)
+		samples[i] = cpu_to_le32((s32)le32_to_cpu(samples[i]) >> 8);
+}
+
+/* Convert the just-completed capture period in place. Only 24-bit
+ * captures need this; 16-bit samples arrive right-justified. The token
+ * identifies which ring buffer period the DSP filled, so the bounds are
+ * checked against the fixed buffer before touching it.
+ */
+static void q6asm_capture_shift(struct q6asm_dai_rtd *prtd, u32 token)
+{
+	struct snd_dma_buffer *buffer = &prtd->substream->dma_buffer;
+	size_t offset;
+
+	if (prtd->bits_per_sample != 24)
+		return;
+
+	if (!buffer->area || !prtd->pcm_count || !prtd->periods ||
+	    prtd->pcm_count % sizeof(__le32))
+		return;
+
+	if (prtd->pcm_size > buffer->bytes ||
+	    prtd->pcm_count > prtd->pcm_size ||
+	    token >= prtd->pcm_size / prtd->pcm_count)
+		return;
+
+	offset = (size_t)token * prtd->pcm_count;
+	if (offset + prtd->pcm_count > buffer->bytes)
+		return;
+
+	q6asm_capture_s24((__le32 *)(buffer->area + offset),
+			  prtd->pcm_count / sizeof(__le32));
+}
+
 static void event_handler(uint32_t opcode, uint32_t token,
 			  void *payload, void *priv)
 {
@@ -198,6 +242,7 @@ static void event_handler(uint32_t opcode, uint32_t token,
 		break;
 		}
 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
+		q6asm_capture_shift(prtd, token);
 		prtd->pcm_irq_pos += prtd->pcm_count;
 		snd_pcm_period_elapsed(substream);
 		if (prtd->state == Q6ASM_STREAM_RUNNING)
@@ -325,8 +370,12 @@ static int q6asm_dai_trigger(struct snd_soc_component *component,
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		prtd->state = Q6ASM_STREAM_STOPPED;
+		/* EOS terminates playback data; a capture session has no input
+		 * EOS to render. Pause capture until prepare/close tears it down.
+		 */
 		ret = q6asm_cmd_nowait(prtd->audio_client, prtd->stream_id,
-				       CMD_EOS);
+				       substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+				       CMD_EOS : CMD_PAUSE);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
@@ -416,9 +465,12 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 
 	runtime->private_data = prtd;
 
-	snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	else
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_capture);
 
-	runtime->dma_bytes = q6asm_dai_hardware_playback.buffer_bytes_max;
+	runtime->dma_bytes = runtime->hw.buffer_bytes_max;
 
 
 	if (pdata->sid < 0)
@@ -1177,6 +1229,15 @@ static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 {
 	struct snd_pcm *pcm = rtd->pcm;
 	size_t size = q6asm_dai_hardware_playback.buffer_bytes_max;
+
+	/* Nabu's DSP rejects a map whose exclusive end reaches the next
+	 * 32-bit address window. Keep one DSP page after the largest PCM
+	 * mapping so a DMA allocation at the top of the IOVA aperture is safe.
+	 * The advertised PCM limits stay unchanged; this tail is never sent
+	 * to the DSP. Other machines keep their original allocation size.
+	 */
+	if (of_machine_is_compatible("xiaomi,nabu"))
+		size += SZ_4K;
 
 	return snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
 					    component->dev, size);

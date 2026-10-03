@@ -10,4 +10,7 @@ void psci_set_domain_state(struct generic_pm_domain *pd, unsigned int state_idx,
 			   u32 state);
 int psci_dt_parse_state_node(struct device_node *np, u32 *state);
 
+u32 psci_idle_suspend_param(void);
+bool psci_cpuidle_uses_syscore(void);
+
 #endif /* __CPUIDLE_PSCI_H */

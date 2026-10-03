@@ -530,11 +530,7 @@ config HID_VRC2
         To compile this driver as a module, choose M here: the
         module will be called hid-vrc2.
 
-config HID_XIAOMI
-	tristate "Xiaomi"
-	help
-	  Adds support for side buttons of Xiaomi Mi Dual Mode Wireless
-	  Mouse Silent Edition.
+source "drivers/hid/hid-xiaomi/Kconfig"
 
 config HID_GYRATION
 	tristate "Gyration remote control"

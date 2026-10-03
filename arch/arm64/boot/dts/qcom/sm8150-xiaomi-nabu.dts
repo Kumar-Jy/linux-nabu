@@ -198,6 +198,7 @@
 			linux,code = <SW_LID>;
 			debounce-interval = <15>;
 			linux,can-disable;
+			linux,notify-chain;
 			wakeup-source;
 		};
 	};
@@ -910,13 +911,11 @@
 
 		pinconf-rts {
 			/*
-			 * Configure pull-down on RTS. As RTS is active low
-			 * signal, pull it low to indicate the BT SoC that it
-			 * can wakeup the system anytime from suspend state by
-			 * pulling RX low (by sending wakeup bytes).
+			 * Configure pull-up on RTS. When sleeping, pulling RTS high
+			 * prevents the BT SoC from sending spurious wakeup bytes on RX.
 			 */
 			 pins = "gpio44";
-			 bias-pull-down;
+			 bias-pull-up;
 		};
 
 		pinconf-tx {
