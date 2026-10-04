@@ -936,6 +936,7 @@
 };
 
 &pon_pwrkey {
+	qcom,s2idle-wake-grace;
 	status = "okay";
 };
 
@@ -1001,6 +1002,7 @@
 	model = "Xiaomi Pad 5";
 
 	audio-routing =	"RX_BIAS", "MCLK",
+		"AIF1 CAP", "MCLK",
 		"AMIC1", "MIC BIAS3",
 		"AMIC3", "MIC BIAS4",
 		"MultiMedia1 Playback", "BR SPK",
@@ -1408,14 +1410,24 @@
 &ufs_mem_hc {
 	status = "okay";
 
-	reset-gpios = <&tlmm 175 GPIO_ACTIVE_LOW>;
-
 	vcc-supply = <&vreg_l10a_2p5>;
 	vcc-max-microamp = <750000>;
 	vccq-supply = <&vreg_l9a_1p2>;
 	vccq-max-microamp = <700000>;
 	vccq2-supply = <&vreg_s4a_1p8>;
 	vccq2-max-microamp = <750000>;
+
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+	freq-table-hz =
+		<37500000 300000000>,
+		<0 0>,
+		<0 0>,
+		<37500000 300000000>,
+		<37500000 300000000>,
+		<0 0>,
+		<0 0>,
+		<0 0>;
 };
 
 &ufs_mem_phy {
@@ -1536,4 +1548,20 @@
 				&txon_enable_suspend &power_good_suspend 
 				&reverse_booset_enable_suspend>;
 	};
+};
+
+#include "sm8150-xiaomi-nabu-camera.dtsi"
+#include "sm8150-xiaomi-nabu-iris.dtsi"
+#include "sm8150-xiaomi-nabu-sensors.dtsi"
+
+&crypto {
+	status = "disabled";
+};
+
+&ufs_mem_hc {
+	/delete-property/ qcom,ice;
+};
+
+&ice {
+	status = "disabled";
 };

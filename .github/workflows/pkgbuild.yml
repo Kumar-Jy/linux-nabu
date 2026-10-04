@@ -1,0 +1,137 @@
+name: pkgbuild
+
+# Build linux-nabu from 616-test / 614-test branches and upload .pkg.tar.zst as an artifact.
+
+on:
+  push:
+    branches:
+      - 614-test
+      - 6.14
+      - 616-test
+      - 6.18-test
+  workflow_dispatch:
+    inputs:
+      build_linux_nabu_614:
+        type: boolean
+        default: false
+        description: Build linux-nabu 6.14
+      build_linux_nabu_616:
+        type: boolean
+        default: false
+        description: Build linux-nabu 6.16
+      build_linux_nabu_618:
+        type: boolean
+        default: true
+        description: Build linux-nabu 6.18
+
+jobs:
+  resolve-packages:
+    name: Resolve package matrix
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      pkg: ${{ steps.set-matrix.outputs.pkg }}
+    steps:
+      - name: Resolve which packages to build
+        id: set-matrix
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            jq -n -c \
+              --argjson linux_nabu_614 "${{ inputs.build_linux_nabu_614 }}" \
+              --argjson linux_nabu_616 "${{ inputs.build_linux_nabu_616 }}" \
+              --argjson linux_nabu_618 "${{ inputs.build_linux_nabu_618 }}" \
+              '[ if $linux_nabu_614 then "linux-nabu-614" else empty end,
+                 if $linux_nabu_616 then "linux-nabu-616" else empty end,
+                 if $linux_nabu_618 then "linux-nabu-618" else empty end ]' > matrix.json
+          elif [[ "${{ github.ref_name }}" == "6.18-test" ]]; then
+            echo '["linux-nabu-618"]' > matrix.json
+          elif [[ "${{ github.ref_name }}" == "616-test" ]]; then
+            echo '["linux-nabu-616"]' > matrix.json
+          else
+            echo '["linux-nabu-614"]' > matrix.json
+          fi
+          pkg=$(cat matrix.json)
+          echo "pkg=$pkg" >> "$GITHUB_OUTPUT"
+
+  build-packages:
+    name: Build ${{ matrix.pkg }}
+    needs: resolve-packages
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ${{ fromJSON(needs.resolve-packages.outputs.pkg) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman git curl
+
+      - name: Compute source signature
+        id: sig
+        run: |
+          pkg="${{ matrix.pkg }}"
+          pkgver=$(grep -m1 '^pkgver=' "packages/$pkg/PKGBUILD" | sed 's/.*=//' | tr -d '"')
+          pkgrel=$(grep -m1 '^pkgrel=' "packages/$pkg/PKGBUILD" | sed 's/.*=//' | tr -d '"')
+          sha=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+          sig="$pkg-$pkgver-$pkgrel-$sha"
+          echo "sig=$sig" >> "$GITHUB_OUTPUT"
+          echo "Source signature: $sig"
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: pkg-cache
+          key: ${{ matrix.pkg }}-${{ steps.sig.outputs.sig }}
+
+      - name: Decide whether to build
+        id: decide
+        run: |
+          if [[ "${{ steps.cache.outputs.cache-hit }}" == "true" ]] && ls pkg-cache/*.pkg.tar.* >/dev/null 2>&1; then
+            echo "need-build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "need-build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build package
+        if: steps.decide.outputs.need-build == 'true'
+        run: |
+          mkdir -p pkg-cache
+          echo "::group::Building ${{ matrix.pkg }}..."
+          podman run --rm \
+            -v "$(pwd)/packages/${{ matrix.pkg }}:/work" \
+            -v "$(pwd)/pkg-cache:/output" \
+            -w /work \
+            menci/archlinuxarm:base \
+            sh -c "
+              sed -i '/^#DisableSandbox/s/^#//' /etc/pacman.conf
+              echo 'DisableSandbox' >> /etc/pacman.conf
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm base-devel git bc python3 xmlto docbook-xsl kmod inetutils dtc systemd-ukify libelf
+              useradd -m builder
+              echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+              chown -R builder:builder /work
+              su builder -c 'cd /work && (makepkg -s --noconfirm --skipchecksums || makepkg -d --noconfirm --skipchecksums)' || exit 1
+              cp /work/*.pkg.tar.* /output/
+            "
+          echo "::endgroup::"
+          ls -la pkg-cache/
+
+      - name: Save cache
+        if: steps.decide.outputs.need-build == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: pkg-cache
+          key: ${{ matrix.pkg }}-${{ steps.sig.outputs.sig }}
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-${{ matrix.pkg }}
+          path: pkg-cache/*
+          if-no-files-found: error
