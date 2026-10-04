@@ -10,6 +10,7 @@
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
 
 #include <linux/debugfs.h>
+#include <linux/delay.h>
 #include <linux/dma-buf.h>
 #include <linux/of_irq.h>
 #include <linux/pm_opp.h>
@@ -1178,6 +1179,18 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		rc = -EINVAL;
 		goto err_pm_put;
 	}
+
+	/*
+	 * Disable any timing engines that the bootloader might have left enabled
+	 * before attaching the IOMMU. Otherwise, active DMA fetchers scanning out
+	 * from unmapped bootloader memory will trigger SMMU translation faults.
+	 */
+	for (i = 0; i < dpu_kms->catalog->intf_count; i++) {
+		if (dpu_kms->catalog->intf[i].type == INTF_NONE)
+			continue;
+		writel_relaxed(0, dpu_kms->mmio + dpu_kms->catalog->intf[i].base + 0x000);
+	}
+	usleep_range(16000, 20000);
 
 	/*
 	 * Now we need to read the HW catalog and initialize resources such as
