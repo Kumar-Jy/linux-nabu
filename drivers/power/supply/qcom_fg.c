@@ -927,9 +927,9 @@ static int qcom_fg_get_property(struct power_supply *psy,
 				break;
 			}
 			if (temp < 0)
-				val->intval = POWER_SUPPLY_STATUS_CHARGING;
-			else if (temp > 0)
 				val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+			else if (temp > 0)
+				val->intval = POWER_SUPPLY_STATUS_CHARGING;
 			else
 				val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		}
@@ -1331,6 +1331,8 @@ static int qcom_fg_probe(struct platform_device *pdev)
 						    "power-supplies");
 	if (IS_ERR(chip->chg_psy)) {
 		ret = PTR_ERR(chip->chg_psy);
+		if (ret == -EPROBE_DEFER)
+			return ret;
 		dev_warn(chip->dev, "Failed to get charger supply: %d\n", ret);
 		chip->chg_psy = NULL;
 	}

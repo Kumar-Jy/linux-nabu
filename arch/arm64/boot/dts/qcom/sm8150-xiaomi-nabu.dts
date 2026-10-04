@@ -1247,3 +1247,11 @@
 &crypto {
 	status = "disabled";
 };
+
+&ufs_mem_hc {
+	/delete-property/ qcom,ice;
+};
+
+&ice {
+	status = "disabled";
+};
