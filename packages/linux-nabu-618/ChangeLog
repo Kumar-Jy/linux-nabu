@@ -1,4 +1,12 @@
 2026-10-05 Kumar <kumar@nabu>
+	* 6.18.55-3:
+	- Display: Remove the 90 degree panel rotation from the nabu panel node. The NT36523
+	  panel's native mode is already portrait 1600x2560, so the rotation property made DRM
+	  disagree with the DSI timings on the sync-dual-DSI link and produced a vertical seam
+	  with a grey half. This matches 6.16, which has no rotation and works correctly.
+	- Package: Bump pkgrel and retarget the source at this branch
+
+2026-10-05 Kumar <kumar@nabu>
 	* 6.18.55-2:
 	- Display: Fix DSI PLL lock failure on boot by removing CLK_OPS_PARENT_ENABLE from disp_cc_mdss_pclk0_clk_src and pclk1
 	- DSI PHY: Restore PM runtime resume in dsi_phy_driver_probe to keep iface clock running during early PLL registration
