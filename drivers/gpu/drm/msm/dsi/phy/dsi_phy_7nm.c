@@ -424,6 +424,15 @@ static void dsi_pll_enable_pll_bias(struct dsi_pll_7nm *pll)
 	u32 data;
 
 	spin_lock_irqsave(&pll->pll_enable_lock, flags);
+
+	/*
+	 * PLL_SYSTEM_MUXES selects which PLL outputs reach the DSI lanes.
+	 * That routing is not part of the bias power state, so program it
+	 * even when the bias is already enabled and the refcount makes the
+	 * power-down writes below a no-op.
+	 */
+	writel(0xc0, pll->phy->pll_base + REG_DSI_7nm_PHY_PLL_SYSTEM_MUXES);
+
 	if (pll->pll_enable_cnt++) {
 		spin_unlock_irqrestore(&pll->pll_enable_lock, flags);
 		WARN_ON(pll->pll_enable_cnt == INT_MAX);
@@ -434,7 +443,6 @@ static void dsi_pll_enable_pll_bias(struct dsi_pll_7nm *pll)
 	data |= DSI_7nm_PHY_CMN_CTRL_0_PLL_SHUTDOWNB;
 	writel(data, pll->phy->base + REG_DSI_7nm_PHY_CMN_CTRL_0);
 
-	writel(0xc0, pll->phy->pll_base + REG_DSI_7nm_PHY_PLL_SYSTEM_MUXES);
 	spin_unlock_irqrestore(&pll->pll_enable_lock, flags);
 	ndelay(250);
 }
