@@ -1,13 +1,13 @@
 name: pkgbuild
 
-# Build linux-nabu from 616-test / 614-test branches and upload .pkg.tar.zst as an artifact.
+# Build linux-nabu from 6.16 / 614-test branches and upload .pkg.tar.zst as an artifact.
 
 on:
   push:
     branches:
       - 614-test
       - 6.14
-      - 616-test
+      - 6.16
   workflow_dispatch:
     inputs:
       build_linux_nabu_614:
@@ -35,7 +35,7 @@ jobs:
               --argjson linux_nabu_616 "${{ inputs.build_linux_nabu_616 }}" \
               '[ if $linux_nabu_614 then "linux-nabu-614" else empty end,
                  if $linux_nabu_616 then "linux-nabu-616" else empty end ]' > matrix.json
-          elif [[ "${{ github.ref_name }}" == "616-test" ]]; then
+          elif [[ "${{ github.ref_name }}" == "6.16" ]]; then
             echo '["linux-nabu-616"]' > matrix.json
           else
             echo '["linux-nabu-614"]' > matrix.json
