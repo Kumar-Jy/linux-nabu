@@ -1,4 +1,14 @@
 2026-10-05 Kumar <kumar@nabu>
+	* 6.18.55-4:
+	- Display: Drop the dpu_kms_hw_init loop that clears every INTF_TIMING_ENGINE_EN
+	  register before the IOMMU is attached. It was added to stop bootloader left-over
+	  DMA causing SMMU faults, but it also blanks the DSI interfaces that the firmware
+	  handed over mid-boot, which shows up as a grey half and vertical lines across the
+	  other half. 6.16 has no such loop and displays correctly, so match it and see
+	  whether the panel fault is from this loop or from upstream 6.18 DSI code.
+	- Package: Bump pkgrel
+
+2026-10-05 Kumar <kumar@nabu>
 	* 6.18.55-3:
 	- Display: Remove the 90 degree panel rotation from the nabu panel node. The NT36523
 	  panel's native mode is already portrait 1600x2560, so the rotation property made DRM
