@@ -61,13 +61,6 @@ static int iris_init_power_domains(struct iris_core *core)
 		return ret;
 
 	ret =  devm_pm_domain_attach_list(core->dev, &iris_opp_pd_data, &core->opp_pmdomain_tbl);
-	/* backwards compatibility for incomplete ABI SM8250 */
-	if (ret == -ENODEV &&
-	    of_device_is_compatible(core->dev->of_node, "qcom,sm8250-venus")) {
-		iris_opp_pd_data.num_pd_names--;
-		ret = devm_pm_domain_attach_list(core->dev, &iris_opp_pd_data,
-						 &core->opp_pmdomain_tbl);
-	}
 	if (ret < 0)
 		return ret;
 
@@ -257,11 +250,11 @@ static int iris_probe(struct platform_device *pdev)
 	core->iris_platform_data = of_device_get_match_data(core->dev);
 
 	ret = devm_request_threaded_irq(core->dev, core->irq, iris_hfi_isr,
-					iris_hfi_isr_handler,
-					IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
-					"iris", core);
+					iris_hfi_isr_handler, IRQF_TRIGGER_HIGH, "iris", core);
 	if (ret)
 		return ret;
+
+	disable_irq_nosync(core->irq);
 
 	iris_init_ops(core);
 	core->iris_platform_data->init_hfi_command_ops(core);
@@ -301,6 +294,16 @@ static int iris_probe(struct platform_device *pdev)
 	ret = devm_pm_runtime_enable(core->dev);
 	if (ret)
 		goto err_vdev_unreg_enc;
+
+	/*
+	 * The legacy VPU5 power-collapse sequence is not implemented yet:
+	 * iris_vpu_prepare_pc() deliberately returns -EAGAIN to keep the
+	 * controller powered.  Do not let runtime PM retry that unsupported
+	 * transition after every autosuspend delay, since it creates a
+	 * permanent workqueue/printk loop while the device is otherwise idle.
+	 */
+	if (core->iris_platform_data->legacy_vpu5)
+		pm_runtime_forbid(core->dev);
 
 	return 0;
 
@@ -364,12 +367,14 @@ static const struct of_device_id iris_dt_match[] = {
 		.compatible = "qcom,qcs8300-iris",
 		.data = &qcs8300_data,
 	},
-#if (!IS_ENABLED(CONFIG_VIDEO_QCOM_VENUS))
 	{
 		.compatible = "qcom,sm8250-venus",
 		.data = &sm8250_data,
 	},
-#endif
+	{
+		.compatible = "qcom,sm8150-iris",
+		.data = &sm8150_data,
+	},
 	{
 		.compatible = "qcom,sm8550-iris",
 		.data = &sm8550_data,
@@ -377,10 +382,6 @@ static const struct of_device_id iris_dt_match[] = {
 	{
 		.compatible = "qcom,sm8650-iris",
 		.data = &sm8650_data,
-	},
-	{
-		.compatible = "qcom,sm8750-iris",
-		.data = &sm8750_data,
 	},
 	{ },
 };
@@ -399,3 +400,4 @@ static struct platform_driver qcom_iris_driver = {
 module_platform_driver(qcom_iris_driver);
 MODULE_DESCRIPTION("Qualcomm iris video driver");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("DMA_BUF");
