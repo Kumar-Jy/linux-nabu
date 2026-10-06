@@ -509,9 +509,7 @@ static int __maybe_unused cci_resume_runtime(struct device *dev)
 	if (ret)
 		goto disable_clocks;
 
-	ret = cci_init(cci);
-	if (ret)
-		goto disable_clocks;
+	cci_init(cci);
 
 	return 0;
 
