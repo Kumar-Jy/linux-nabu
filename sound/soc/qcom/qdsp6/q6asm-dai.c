@@ -9,6 +9,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/sizes.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
@@ -1238,6 +1239,15 @@ static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 {
 	struct snd_pcm *pcm = rtd->pcm;
 	size_t size = q6asm_dai_hardware_playback.buffer_bytes_max;
+
+	/* Nabu's DSP rejects a map whose exclusive end reaches the next
+	 * 32-bit address window. Keep one DSP page after the largest PCM
+	 * mapping so a DMA allocation at the top of the IOVA aperture is safe.
+	 * The advertised PCM limits stay unchanged; this tail is never sent
+	 * to the DSP. Other machines keep their original allocation size.
+	 */
+	if (of_machine_is_compatible("xiaomi,nabu"))
+		size += SZ_4K;
 
 	return snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
 					    component->dev, size);

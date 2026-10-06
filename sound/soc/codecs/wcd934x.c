@@ -2306,8 +2306,11 @@ static irqreturn_t wcd934x_slim_irq_handler(int irq, void *data)
 			}
 		}
 
+		/* Port closure is a normal stream-stop notification. Keep
+		 * FIFO overflow/underflow reports above at error level.
+		 */
 		if (val & WCD934X_SLIM_IRQ_PORT_CLOSED)
-			dev_err_ratelimited(wcd->dev,
+			dev_dbg_ratelimited(wcd->dev,
 					    "Port Closed %s port %d, value %x\n",
 					    (tx ? "TX" : "RX"), port_id, val);
 
@@ -3348,8 +3351,16 @@ static int slim_rx_mux_put(struct snd_kcontrol *kc,
 			return 0;
 
 		if (list_empty(&wcd->rx_chs[port_id].list)) {
-			list_add_tail(&wcd->rx_chs[port_id].list,
-				      &wcd->dai[aif_id].slim_ch_list);
+			struct list_head *ptr;
+
+			list_for_each(ptr, &wcd->dai[aif_id].slim_ch_list) {
+				struct wcd934x_slim_ch *cur =
+					list_entry(ptr, struct wcd934x_slim_ch, list);
+
+				if (cur->port > wcd->rx_chs[port_id].port)
+					break;
+			}
+			list_add_tail(&wcd->rx_chs[port_id].list, ptr);
 		} else {
 			dev_err(wcd->dev ,"SLIM_RX%d PORT is busy\n", port_id);
 			return 0;
@@ -3819,8 +3830,16 @@ static int slim_tx_mixer_put(struct snd_kcontrol *kc,
 
 	if (enable) {
 		if (list_empty(&wcd->tx_chs[port_id].list)) {
-			list_add_tail(&wcd->tx_chs[port_id].list,
-				      &wcd->dai[dai_id].slim_ch_list);
+			struct list_head *ptr;
+
+			list_for_each(ptr, &wcd->dai[dai_id].slim_ch_list) {
+				struct wcd934x_slim_ch *cur =
+					list_entry(ptr, struct wcd934x_slim_ch, list);
+
+				if (cur->port > wcd->tx_chs[port_id].port)
+					break;
+			}
+			list_add_tail(&wcd->tx_chs[port_id].list, ptr);
 		} else {
 			dev_err(wcd->dev ,"SLIM_TX%d PORT is busy\n", port_id);
 			return 0;
