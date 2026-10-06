@@ -27,8 +27,12 @@
 #define QCOM_BMS_PSY_NAME "qcom-battery"
 #define QCOM_BMS_USB_PSY_NAME "qcom-usb"
 
-/* Direct charge is deferred to PMIC USBIN precharge below this VBAT (uV). */
-#define QCOM_BMS_DC_MIN_VBAT_UV 3500000
+/* Direct charge is attempted down to this VBAT (uV); the PMIC USBIN path
+ * does not provide the deferred precharge below it on nabu. */
+#define QCOM_BMS_DC_MIN_VBAT_UV 3000000
+
+/* Charger FULL/INHIBIT claims are only credible near the float voltage. */
+#define QCOM_BMS_MIN_FULL_VBAT_UV 4000000
 
 struct qcom_bms_fg {
 	struct device *dev;
@@ -528,6 +532,7 @@ static void qcom_bms_update_status(struct qcom_bms_info *info)
 	int pmic_status = POWER_SUPPLY_STATUS_UNKNOWN;
 	int direct_status = POWER_SUPPLY_STATUS_UNKNOWN;
 	int fg_current = 0;
+	int vbat_uv = 0;
 	int online;
 	int new_status;
 	bool have_direct;
@@ -536,6 +541,7 @@ static void qcom_bms_update_status(struct qcom_bms_info *info)
 	bool direct_online = false;
 	bool pmic_online = false;
 	bool fg_current_valid = false;
+	bool fg_voltage_known = false;
 	bool charge_done;
 	bool input_present;
 	bool changed;
@@ -549,6 +555,10 @@ static void qcom_bms_update_status(struct qcom_bms_info *info)
 
 	if (have_fg && fg.ops->get_current)
 		fg_current_valid = !fg.ops->get_current(fg.priv, &fg_current);
+
+	if (have_fg && fg.ops->get_voltage &&
+	    !fg.ops->get_voltage(fg.priv, &vbat_uv))
+		fg_voltage_known = vbat_uv > 0;
 
 	if (have_pmic) {
 		if (pmic.ops->get_status)
@@ -567,8 +577,15 @@ static void qcom_bms_update_status(struct qcom_bms_info *info)
 	}
 
 	input_present = pmic_online || direct_online;
-	charge_done = pmic_status == POWER_SUPPLY_STATUS_FULL ||
-		      direct_status == POWER_SUPPLY_STATUS_FULL;
+	/* At deep discharge the PMIC charger parks in INHIBIT (reported as
+	 * FULL) while the direct charger is below its rate, so the battery
+	 * drains on the cable.  A FULL claim is only credible near the float
+	 * voltage; otherwise report the true discharging state.
+	 */
+	charge_done = (pmic_status == POWER_SUPPLY_STATUS_FULL ||
+		       direct_status == POWER_SUPPLY_STATUS_FULL) &&
+		      (!fg_voltage_known ||
+		       vbat_uv >= QCOM_BMS_MIN_FULL_VBAT_UV);
 
 	/* Charger state is authoritative; FG current is only a fallback. */
 	if (charge_done)
