@@ -567,6 +567,7 @@
 
 &i2c7 {
 	status = "okay";
+	clock-frequency = <400000>;
 
 	cs35l41_br: cs35l41@40 {
 		compatible = "cirrus,cs35l41";
