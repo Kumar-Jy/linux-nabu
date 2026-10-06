@@ -11,7 +11,6 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/pm.h>
 #include <linux/regmap.h>
 
 #define DEFAULT_BRIGHTNESS 1500
@@ -179,21 +178,6 @@ static void ktz8866_remove(struct i2c_client *client)
 	backlight_update_status(backlight_dev);
 }
 
-static int ktz8866_resume(struct device *dev)
-{
-	struct i2c_client *client = to_i2c_client(dev);
-	struct backlight_device *backlight_dev = i2c_get_clientdata(client);
-	struct ktz8866 *ktz = bl_get_data(backlight_dev);
-
-	ktz8866_init(ktz);
-	ktz->led_on = false;
-	backlight_update_status(backlight_dev);
-
-	return 0;
-}
-
-static DEFINE_SIMPLE_DEV_PM_OPS(ktz8866_pm_ops, NULL, ktz8866_resume);
-
 static const struct i2c_device_id ktz8866_ids[] = {
 	{ "ktz8866" },
 	{}
@@ -212,7 +196,6 @@ static struct i2c_driver ktz8866_driver = {
 	.driver = {
 		.name = "ktz8866",
 		.of_match_table = ktz8866_match_table,
-		.pm = pm_sleep_ptr(&ktz8866_pm_ops),
 	},
 	.probe = ktz8866_probe,
 	.remove = ktz8866_remove,
