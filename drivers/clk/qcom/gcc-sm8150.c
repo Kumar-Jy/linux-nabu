@@ -3049,7 +3049,7 @@ static struct clk_branch gcc_ufs_phy_phy_aux_hw_ctl_clk = {
 	},
 };
 
-/* external clocks so add BRANCH_HALT_SKIP */
+/* external clocks so add BRANCH_HALT_DELAY */
 static struct clk_branch gcc_ufs_phy_rx_symbol_0_clk = {
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
@@ -3062,7 +3062,7 @@ static struct clk_branch gcc_ufs_phy_rx_symbol_0_clk = {
 	},
 };
 
-/* external clocks so add BRANCH_HALT_SKIP */
+/* external clocks so add BRANCH_HALT_DELAY */
 static struct clk_branch gcc_ufs_phy_rx_symbol_1_clk = {
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
@@ -3075,7 +3075,7 @@ static struct clk_branch gcc_ufs_phy_rx_symbol_1_clk = {
 	},
 };
 
-/* external clocks so add BRANCH_HALT_SKIP */
+/* external clocks so add BRANCH_HALT_DELAY */
 static struct clk_branch gcc_ufs_phy_tx_symbol_0_clk = {
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
