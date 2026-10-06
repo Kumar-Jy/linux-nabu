@@ -1698,7 +1698,7 @@ static int wcd934x_slim_set_hw_params(struct wcd934x_codec *wcd,
 	struct slim_stream_config *cfg = &dai_data->sconfig;
 	struct wcd934x_slim_ch *ch;
 	u16 payload = 0;
-	int ret, i;
+	int ret, i, port_id;
 
 	cfg->ch_count = 0;
 	cfg->direction = direction;
@@ -1716,8 +1716,14 @@ static int wcd934x_slim_set_hw_params(struct wcd934x_codec *wcd,
 		return -ENOMEM;
 
 	i = 0;
+	for_each_set_bit(port_id, &cfg->port_mask, SLIM_DEVICE_MAX_PORTS) {
+		if (direction == SNDRV_PCM_STREAM_PLAYBACK)
+			cfg->chs[i++] = wcd->rx_chs[port_id - WCD934X_RX_START].ch_num;
+		else
+			cfg->chs[i++] = wcd->tx_chs[port_id].ch_num;
+	}
+
 	list_for_each_entry(ch, slim_ch_list, list) {
-		cfg->chs[i++] = ch->ch_num;
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
 			/* write to interface device */
 			ret = regmap_write(wcd->if_regmap,
@@ -1943,7 +1949,7 @@ static int wcd934x_get_channel_map(const struct snd_soc_dai *dai,
 {
 	struct wcd934x_slim_ch *ch;
 	struct wcd934x_codec *wcd;
-	int i = 0;
+	int i = 0, j, k;
 
 	wcd = snd_soc_component_get_drvdata(dai->component);
 
@@ -1961,6 +1967,13 @@ static int wcd934x_get_channel_map(const struct snd_soc_dai *dai,
 		list_for_each_entry(ch, &wcd->dai[dai->id].slim_ch_list, list)
 			rx_slot[i++] = ch->ch_num;
 
+		for (j = 0; j < i; j++) {
+			for (k = j + 1; k < i; k++) {
+				if (rx_slot[j] > rx_slot[k])
+					swap(rx_slot[j], rx_slot[k]);
+			}
+		}
+
 		*rx_num = i;
 		break;
 	case AIF1_CAP:
@@ -1974,6 +1987,13 @@ static int wcd934x_get_channel_map(const struct snd_soc_dai *dai,
 
 		list_for_each_entry(ch, &wcd->dai[dai->id].slim_ch_list, list)
 			tx_slot[i++] = ch->ch_num;
+
+		for (j = 0; j < i; j++) {
+			for (k = j + 1; k < i; k++) {
+				if (tx_slot[j] > tx_slot[k])
+					swap(tx_slot[j], tx_slot[k]);
+			}
+		}
 
 		*tx_num = i;
 		break;
@@ -5704,6 +5724,14 @@ static const struct snd_soc_dapm_route wcd934x_audio_map[] = {
 	{"SPK2 OUT", NULL, "RX INT8 CHAIN"},
 
 	/* Tx */
+	{"AIF1 CAP", NULL, "MCLK"},
+	{"AIF2 CAP", NULL, "MCLK"},
+	{"AIF3 CAP", NULL, "MCLK"},
+	{"AIF1 PB", NULL, "MCLK"},
+	{"AIF2 PB", NULL, "MCLK"},
+	{"AIF3 PB", NULL, "MCLK"},
+	{"AIF4 PB", NULL, "MCLK"},
+
 	{"AIF1 CAP", NULL, "AIF1_CAP Mixer"},
 	{"AIF2 CAP", NULL, "AIF2_CAP Mixer"},
 	{"AIF3 CAP", NULL, "AIF3_CAP Mixer"},

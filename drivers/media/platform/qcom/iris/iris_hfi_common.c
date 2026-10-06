@@ -3,6 +3,7 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/irq.h>
 #include <linux/pm_runtime.h>
 
 #include "iris_firmware.h"
@@ -119,58 +120,58 @@ irqreturn_t iris_hfi_isr_handler(int irq, void *data)
 
 int iris_hfi_pm_suspend(struct iris_core *core)
 {
+	/*
+	 * SM8150 VPU5 has no supported power-collapse sequence: the upstream
+	 * path (iris_vpu_prepare_pc()) returns -EAGAIN, which vetoes system
+	 * suspend entirely.  Keep the controller powered and report success.
+	 * iris_hfi_pm_resume() schedules the firmware restart instead.
+	 */
+	return 0;
+}
+
+void iris_wake_restart_worker(struct work_struct *work)
+{
+	struct iris_core *core =
+		container_of(work, struct iris_core, wake_restart.work);
 	int ret;
 
-	ret = iris_vpu_prepare_pc(core);
-	if (ret) {
-		pm_runtime_mark_last_busy(core->dev);
-		ret = -EAGAIN;
-		goto error;
-	}
+	if (core->irq >= 0 &&
+	    irqd_irq_disabled(irq_get_irq_data(core->irq)))
+		enable_irq(core->irq);
 
-	ret = iris_set_hw_state(core, false);
+	iris_core_deinit(core);
+	ret = iris_core_init(core);
 	if (ret)
-		goto error;
-
-	iris_vpu_power_off(core);
-
-	return 0;
-
-error:
-	dev_err(core->dev, "failed to suspend\n");
-
-	return ret;
+		dev_err(core->dev,
+			"VPU firmware restart failed after s2idle resume: %d\n"
+			"(firmware may still be wedged; reboot clears)\n",
+			ret);
+	else
+		dev_info(core->dev,
+			 "restarted VPU firmware after s2idle resume\n");
 }
 
 int iris_hfi_pm_resume(struct iris_core *core)
 {
-	const struct iris_hfi_command_ops *ops = core->hfi_ops;
-	int ret;
-
-	ret = iris_vpu_power_on(core);
-	if (ret)
-		goto error;
-
-	ret = iris_set_hw_state(core, true);
-	if (ret)
-		goto err_power_off;
-
-	ret = iris_vpu_boot_firmware(core);
-	if (ret)
-		goto err_suspend_hw;
-
-	ret = ops->sys_interframe_powercollapse(core);
-	if (ret)
-		goto err_suspend_hw;
+	/*
+	 * VPU5 stays powered through suspend (iris_hfi_pm_suspend() is a
+	 * no-op), so the firmware does not power-collapse at wake.  Yet the
+	 * AP-side HFI transport wedges: SESSION_INIT responses stop
+	 * arriving (-110 on every open) until a reboot.  A SYS_INIT re-send is
+	 * not enough to clear it, so reboot the VPU firmware the same way a
+	 * fresh boot does -- full teardown and re-initialization.
+	 *
+	 * A synchronous teardown/rebuild here hangs the whole resume
+	 * path: running inside dpm_resume means the VPU's own clock and
+	 * power domains are still resuming, and taking their locks here
+	 * deadlocks the machine before userspace returns.
+	 *
+	 * Queue the restart instead.  It runs a moment after resume in
+	 * normal process context, with all power domains up, and rebuilds
+	 * the VPU exactly like the driver's own firmware-error recovery
+	 * (deinit + init), clearing the wedge before any session can open.
+	 */
+	schedule_delayed_work(&core->wake_restart, msecs_to_jiffies(1000));
 
 	return 0;
-
-err_suspend_hw:
-	iris_set_hw_state(core, false);
-err_power_off:
-	iris_vpu_power_off(core);
-error:
-	dev_err(core->dev, "failed to resume\n");
-
-	return -EBUSY;
 }

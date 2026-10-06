@@ -113,6 +113,7 @@ struct iris_core {
 	struct completion			core_init_done;
 	u32					intr_status;
 	struct delayed_work			sys_error_handler;
+	struct delayed_work			wake_restart;
 	struct list_head			instances;
 	/* encoder and decoder have overlapping caps, so two different arrays are required */
 	struct platform_inst_fw_cap		inst_fw_caps_dec[INST_FW_CAP_MAX];
@@ -121,5 +122,6 @@ struct iris_core {
 
 int iris_core_init(struct iris_core *core);
 void iris_core_deinit(struct iris_core *core);
+void iris_wake_restart_worker(struct work_struct *work);
 
 #endif

@@ -533,7 +533,7 @@ static int xiaomi_keyboard_probe(struct platform_device *pdev)
 	mdata->is_in_suspend = false;
 	mdata->lid_is_closed = false;
 	mdata->screen_is_on = true;
-	mdata->user_enabled = false;
+	mdata->user_enabled = true;
 	mdata->irq_wake_enabled = false;
 
 	mdata->drm_notif.notifier_call = keyboard_drm_notifier_callback;

@@ -377,8 +377,12 @@ static int q6asm_dai_trigger(struct snd_soc_component *component,
 				       0, 0, 0);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
+		/* EOS terminates playback data; a capture session has no input
+		 * EOS to render. Pause capture until prepare/close tears it down.
+		 */
 		ret = q6asm_cmd_nowait(prtd->audio_client, prtd->stream_id,
-				       CMD_EOS);
+				       substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+				       CMD_EOS : CMD_PAUSE);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
@@ -468,9 +472,12 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 
 	runtime->private_data = prtd;
 
-	snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_playback);
+	else
+		snd_soc_set_runtime_hwparams(substream, &q6asm_dai_hardware_capture);
 
-	runtime->dma_bytes = q6asm_dai_hardware_playback.buffer_bytes_max;
+	runtime->dma_bytes = runtime->hw.buffer_bytes_max;
 
 
 	if (pdata->sid < 0)
