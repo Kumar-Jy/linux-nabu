@@ -1454,12 +1454,10 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	ctrl = container_of(work, struct qcom_slim_ngd_ctrl, ngd_up_work);
 
 	/*
-	 * The SLIM QMI service and the audio protection domain can come up in
-	 * either order.  Wait for the QMI service without the old one-second
-	 * cap: the downstream driver waits unbounded here (ngd_dom_up()), and
-	 * the short cap let a late QMI arrival leave the SLIM controller
-	 * unregistered, so the WCD934x codec never enumerated and the system
-	 * had no sound card until the next boot.
+	 * Wait unbounded for the SLIM QMI service: it and the audio protection
+	 * domain can come up in either order.  The old one-second cap could
+	 * leave the SLIM controller unregistered and the WCD934x codec
+	 * unenumerated, so do not time out here.
 	 */
 	wait_for_completion_interruptible(&ctrl->qmi_up);
 

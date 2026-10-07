@@ -765,15 +765,10 @@ static void iris_hfi_gen1_session_ftb_done(struct iris_inst *inst, void *packet)
 
 error:
 	/*
-	 * A terminal EOS/LAST or flush completion and its final FTB done can be
-	 * adjacent in the HFI response queue.  Once mem2mem has delivered LAST it
-	 * marks the context stopped, but userspace may not have issued STREAMOFF
-	 * yet.  The terminal buffer can therefore already be off the destination
-	 * list while streamoff_pending is still false.
-	 *
-	 * There is no userspace buffer left to complete after LAST/stopped or
-	 * during STREAMOFF.  Keep unmatched FTBs fatal in every other state so a
-	 * genuine buffer bookkeeping failure during playback is not hidden.
+	 * A terminal LAST and its final FTB done can be adjacent in the response
+	 * queue, so the context may already be stopped with the buffer off the
+	 * destination list.  Keep unmatched FTBs fatal in every other state so a
+	 * genuine playback failure is not hidden.
 	 */
 	m2m_stopped = v4l2_m2m_has_stopped(m2m_ctx);
 	if (inst->streamoff_pending || inst->last_buffer_dequeued || m2m_stopped) {

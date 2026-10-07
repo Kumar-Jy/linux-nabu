@@ -17,22 +17,13 @@
 #include "iris_power.h"
 
 /*
- * On SM8150 Venus (VIDEO.IR.1.2) the firmware validates OUTPUT/OUTPUT2
- * (capture and split-mode DPB) IOVAs against an output-address boundary near
- * the top of the non-secure aperture (~0xd0000000).  The attached SMMU uses a
- * single shared iommu-dma allocator that is top-down within [0, 0xdfffffff].
- *
- * FFmpeg's m2m flow allocates the OUTPUT (bitstream) queue and the
- * firmware-internal BIN/SCRATCH/PERSIST buffers before the CAPTURE queue and
- * the internal DPBs.  Those early allocations therefore consume the IOVAs
- * the firmware requires for OUTPUT/OUTPUT2, pushing the later CAPTURE/DPB
- * allocations down to 0xb/0xc... where the firmware rejects them.
- *
- * Reserve the high IOVA region with a throwaway placeholder allocation taken
- * while the input side is set up, then release it right before the CAPTURE
- * queue is allocated so the top-down allocator hands the freshly freed high
- * region to the output buffers instead.  This keeps the device DMA mask
- * stable for the whole session, unlike the v80/v81 mask-toggling experiment.
+ * SM8150 Venus validates OUTPUT/OUTPUT2 IOVAs against a boundary near the
+ * top of the non-secure aperture (~0xd0000000).  FFmpeg's m2m flow allocates
+ * the bitstream and firmware-internal buffers before CAPTURE, consuming the
+ * high IOVAs those OUTPUT buffers need.  Reserve the high region with a
+ * throwaway placeholder during input setup, then release it right before the
+ * CAPTURE queue is allocated so the top-down iommu-dma allocator hands the
+ * freed high region to the output buffers.
  */
 #define IRIS1_VP9_IOVA_HOLE_SIZE	0x04000000ULL	/* 64 MiB placeholder */
 

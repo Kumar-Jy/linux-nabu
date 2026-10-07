@@ -111,12 +111,10 @@ static void iris_vpu_interrupt_init(struct iris_core *core)
 
 	if (iris_vpu_uses_legacy_vpu5(core)) {
 		/*
-		 * Iris1 comes out of reset with reserved interrupt sources
-		 * masked.  Keep the firmware watchdog (BIT(4)) masked for this
-		 * diagnostic and only unmask the normal A2H CPU interrupt.  The
-		 * previous CTRL_INIT-only tests consistently stalled one host
-		 * CPU at the firmware watchdog interval, which is characteristic
-		 * of an uncleared level interrupt.
+		 * Iris1 masks reserved interrupt sources at reset.  Unmask only
+		 * the normal A2H CPU interrupt and keep the firmware watchdog
+		 * (BIT(4)) masked, as an uncleared level interrupt would stall
+		 * the host CPU.
 		 */
 		mask_val = readl(core->reg_base + wrapper_base + 0x10);
 		dev_info(core->dev,

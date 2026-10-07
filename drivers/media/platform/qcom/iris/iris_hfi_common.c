@@ -203,27 +203,17 @@ int iris_hfi_pm_resume(struct iris_core *core)
 	int ret;
 
 	/*
-	 * VPU5 stays powered through s2idle (iris_hfi_pm_suspend() is a
-	 * no-op), so the firmware does not power-collapse at wake.  Yet after
-	 * s2idle the AP-side HFI transport wedges: SESSION_INIT responses stop
-	 * arriving (-110 on every open) until a reboot.  A SYS_INIT re-send is
-	 * not enough to clear it, so reboot the VPU firmware the same way a
-	 * fresh boot does -- full teardown and re-initialization.
+	 * VPU5 stays powered through s2idle, but the HFI transport wedges at
+	 * wake: SESSION_INIT responses stop arriving until the firmware is
+	 * re-initialized (full teardown), as a SYS_INIT re-send is insufficient.
 	 */
 	if (core->iris_platform_data->legacy_vpu5) {
 		/*
-		 * A synchronous teardown/rebuild here hangs the whole resume
-		 * path: running inside dpm_resume means the VPU's own clock
-		 * and power domains are still resuming, and taking their
-		 * locks here deadlocks the machine before userspace returns
-		 * (observed: two hard hangs at wake on 6.14.11-16).
-		 *
-		 * Queue the restart instead.  It runs a moment after resume
-		 * in normal process context, with all power domains up, and
-		 * rebuilds the VPU exactly like the driver's own
-		 * firmware-error recovery (deinit + init), clearing the
-		 * s2idle wedge (-110 on every SESSION_INIT) before any
-		 * session can open.
+		 * A synchronous rebuild here would deadlock: running inside
+		 * dpm_resume, the VPU clock and power domains are still
+		 * resuming.  Queue the restart in process context instead,
+		 * which replays firmware-error recovery (deinit + init) after
+		 * resume and clears the s2idle wedge before any session opens.
 		 */
 		schedule_delayed_work(&core->wake_restart,
 				      msecs_to_jiffies(1000));

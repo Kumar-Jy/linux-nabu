@@ -1388,14 +1388,10 @@ static int iris_hfi_gen1_session_set_config_params(struct iris_inst *inst, u32 p
 	int ret;
 
 	/*
-	 * The initial input configuration already describes both decoder
-	 * output streams.  VIDEO.IR.1.2 accepts the duplicate configuration
-	 * for some H.264 streams, but replaying input/count/multistream properties
-	 * after sequence discovery can invalidate the firmware's output setup.
-	 * Downstream configures the capture format before streaming and does
-	 * not replay the complete input property list at capture STREAMON.
+	 * Do not replay the full input property list at capture STREAMON: it
+	 * can invalidate the firmware's output setup after sequence discovery.
 	 * Update only the client-visible output2 geometry/count/size and the
-	 * firmware-owned DPB count after the sequence-change event.
+	 * firmware-owned DPB count.
 	 */
 	if (inst->domain == DECODER && V4L2_TYPE_IS_CAPTURE(plane) &&
 	    ((core->iris_platform_data->legacy_vpu5 &&

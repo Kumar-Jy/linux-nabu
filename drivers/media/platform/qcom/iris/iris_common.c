@@ -375,10 +375,8 @@ int iris_reserve_core_load(struct iris_inst *inst, u32 frame_rate)
 	}
 
 	/*
-	 * VIDEO.IR.1.2 exhausted its firmware VBUF object pool while the fourth
-	 * 4K CAPTURE session was starting, before any throughput measurement
-	 * could correct an optimistic rate.  Three such sessions reached the
-	 * allocation path; never expose the known-unsafe fourth allocation.
+	 * VIDEO.IR.1.2 exhausts its firmware VBUF object pool at the fourth
+	 * concurrent 4K CAPTURE session; reject that allocation.
 	 */
 	if (core->iris_platform_data->legacy_vpu5 &&
 	    mbpf >= IRIS1_4K_MBPF &&

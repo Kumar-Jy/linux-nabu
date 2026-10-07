@@ -298,9 +298,9 @@ static int iris_probe(struct platform_device *pdev)
 	/*
 	 * The legacy VPU5 power-collapse sequence is not implemented yet:
 	 * iris_vpu_prepare_pc() deliberately returns -EAGAIN to keep the
-	 * controller powered.  Do not let runtime PM retry that unsupported
-	 * transition after every autosuspend delay, since it creates a
-	 * permanent workqueue/printk loop while the device is otherwise idle.
+	 * controller powered.  Forbid runtime PM so autosuspend cannot retry
+	 * that unsupported transition in a workqueue/printk loop while the
+	 * device is otherwise idle.
 	 */
 	if (core->iris_platform_data->legacy_vpu5)
 		pm_runtime_forbid(core->dev);

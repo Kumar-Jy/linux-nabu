@@ -343,13 +343,10 @@ static void iris_fill_internal_buf_info(struct iris_inst *inst,
 		inst->core->iris_platform_data->legacy_vpu5 &&
 		inst->fw_buffer_sizes[buffer_type];
 	/*
-	 * VIDEO.IR.1.2 reports the exact internal allocation sizes after the
-	 * session properties have been applied.  The generic Iris formulas are
-	 * for newer hardware and substantially overestimate VPU5 decoder scratch
-	 * memory (272 MiB instead of 20 MiB for 4K HEVC), preventing two legal
-	 * sessions from coexisting.  Qualcomm's downstream VPU5 driver likewise
-	 * allocates the firmware-reported size directly.  Keep the formula as a
-	 * fallback when no requirement was returned and for non-VPU5 hardware.
+	 * VIDEO.IR.1.2 reports exact internal allocation sizes; the generic
+	 * Iris formulas overestimate VPU5 decoder scratch memory, so use the
+	 * firmware-reported size when available and fall back to the formula
+	 * for non-VPU5 hardware or when no requirement was returned.
 	 */
 	if (exact_firmware_size) {
 		buffers->size = inst->fw_buffer_sizes[buffer_type];
