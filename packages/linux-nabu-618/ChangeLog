@@ -1,4 +1,4 @@
-2026-10-07 Kumar <kumar@nabu>
+2026-10-07 Kumar-Jy <20044626+Kumar-Jy@users.noreply.github.com>
 	* 6.18.55-1:
 	- Bump to Linux 6.18.55-1 LTS with full hardware support for all functions on the Xiaomi Pad 5 (nabu) and up-to-date security patches
 	- Package: track the 6.18 branch (renamed from 6.18-display-fix); package release restarted at 1

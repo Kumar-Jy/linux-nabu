@@ -87,14 +87,14 @@ pre_upgrade() {
 
 show_changelog() {
     echo -e "\n\e[1;34m::\e[0m \e[1mlinux-nabu ($1) changelog highlights:\e[0m"
-    echo "   * Kernel: Linux 6.16 sm8150 baseline"
-    echo "   * Sleep/Wake: s2idle 300ms grace, PSCI cluster suspend, BT RTS wake fix"
-    echo "   * Display: Deferred blank workqueue, KTZ8866 backlight resume, 120Hz"
-    echo "   * Audio: CS35L41 DAPM route cycle fix, 24-bit capture shift, slimbus"
+    echo "   * Kernel: Linux 6.18.55 LTS, sm8150 baseline"
+    echo "   * Display: DSI PLL lock fix on boot, PHY runtime resume, PLL bias protection"
+    echo "   * UFS: DT frequency table + reset quirk for Samsung UFS"
+    echo "   * FastRPC SLPI: high-IOVA alias mapping + sensor PDR registration"
     echo "   * Camera & Video: OV13B10/OV8856/CN3927, Iris VPU hardware video decode"
+    echo "   * Audio: SM8150 machine driver, 24-bit mic capture, CS35L41 speaker routing"
     echo "   * Power: SMB5 USB-PD charger, Renesas IDTP9418 stylus wireless charging"
     echo "   * Input: Novatek NT36523 touchscreen, Xiaomi keyboard & cover lid notifier"
-    echo "   * Cleanup: Run 'sudo nabu-kclean' to remove previous kernel backups"
     echo ""
 }
 
