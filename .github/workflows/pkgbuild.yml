@@ -1,16 +1,6 @@
 name: pkgbuild
 
 # Build the kernel package for the branch selected when running the workflow.
-# - Manual trigger only (workflow_dispatch), no push/build triggers.
-# - The branch's own packages/linux-nabu-* dir is used.
-# - PKGBUILD #branch= is forced to the selected branch (always the same source).
-# - No caching, no matrix, no build skipping - every run is a fresh full build.
-#
-# Outputs:
-#   1. Always: two separate artifacts - the kernel package and the headers package.
-#   2. Optional ('Upload to GitHub Release'): a release tagged v<version>-<pkgrel>
-#      (for the main branch) or v<version>-<pkgrel>-<branch> (other branches),
-#      with the kernel and headers packages attached as separate assets.
 
 on:
   workflow_dispatch:
@@ -74,20 +64,11 @@ jobs:
           echo "::endgroup::"
           ls -la pkg-out/
 
-      - name: Upload kernel package artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
           name: pkg-linux-nabu-${{ steps.pkg.outputs.version }}
-          path: |
-            pkg-out/*.pkg.tar.*
-            !pkg-out/*-headers-*.pkg.tar.*
-          if-no-files-found: error
-
-      - name: Upload headers package artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: pkg-linux-nabu-headers-${{ steps.pkg.outputs.version }}
-          path: pkg-out/*-headers-*.pkg.tar.*
+          path: pkg-out/*
           if-no-files-found: error
 
       - name: Create / update GitHub Release
