@@ -9,6 +9,12 @@ on:
         description: 'Upload the built package to a GitHub Release (tag includes kernel version)'
         type: boolean
         default: false
+  push:
+    branches:
+      - 7.2-wip
+      - 6.18
+      - 6.18-test
+      - 6.18-display-fix
 
 permissions:
   contents: write
@@ -63,7 +69,7 @@ jobs:
               echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
               chown -R builder:builder /work
               # Build the branch selected in the UI (never a hardcoded branch).
-              sed -i \"s|#branch=[^\"]*|#branch=$branch|\" /work/PKGBUILD
+              sed -i \"s|#branch=[A-Za-z0-9._/-]*|#branch=$branch|\" /work/PKGBUILD
               su builder -c 'cd /work && (makepkg -s --noconfirm --skipchecksums || makepkg -d --noconfirm --skipchecksums)' || exit 1
               cp /work/*.pkg.tar.* /output/
             "
