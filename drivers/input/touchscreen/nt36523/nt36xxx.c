@@ -98,7 +98,7 @@ static inline int32_t nvt_spi_write(struct spi_device *client, uint8_t *buf,
 		.tx_buf = ts->xbuf,
 	};
 
-	memcpy(ts->xbuf, buf, len);
+	memset(ts->xbuf, 0, len + DUMMY_BYTES); memcpy(ts->xbuf + DUMMY_BYTES, buf, len);
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
