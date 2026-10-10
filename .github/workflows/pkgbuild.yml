@@ -1,0 +1,133 @@
+name: pkgbuild
+
+# Build the kernel package for the branch selected when running the workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_release:
+        description: 'Upload the built package to a GitHub Release (tag includes kernel version)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ github.ref_name }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve package info
+        id: pkg
+        run: |
+          if [[ "${{ github.ref_name }}" == "7.2-wip" ]]; then
+            package="linux-nabu-72"
+          elif [[ "${{ github.ref_name }}" == "6.18-test" || "${{ github.ref_name }}" == "6.18-display-fix" ]]; then
+            package="linux-nabu-618"
+          else
+            package="linux-nabu-614"
+          fi
+          pkgver=$(grep -m1 '^pkgver=' "packages/$package/PKGBUILD" | cut -d= -f2- | tr -d '"')
+          pkgrel=$(grep -m1 '^pkgrel=' "packages/$package/PKGBUILD" | cut -d= -f2- | tr -d '"')
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "version=${pkgver}-${pkgrel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Build package
+        run: |
+          package="${{ steps.pkg.outputs.package }}"
+          branch="${{ github.ref_name }}"
+          mkdir -p pkg-out
+          echo "::group::Building $package (branch $branch)..."
+          podman run --rm \
+            -v "$(pwd)/packages/$package:/work" \
+            -v "$(pwd)/pkg-out:/output" \
+            -w /work \
+            menci/archlinuxarm:base \
+            sh -c "
+              sed -i '/^#DisableSandbox/s/^#//' /etc/pacman.conf
+              echo 'DisableSandbox' >> /etc/pacman.conf
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm base-devel git bc python3 xmlto docbook-xsl kmod inetutils dtc systemd-ukify libelf
+              useradd -m builder
+              echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+              chown -R builder:builder /work
+              # Build the branch selected in the UI (never a hardcoded branch).
+              sed -i \"s|#branch=[^\"]*|#branch=$branch|\" /work/PKGBUILD
+              su builder -c 'cd /work && (makepkg -s --noconfirm --skipchecksums || makepkg -d --noconfirm --skipchecksums)' || exit 1
+              cp /work/*.pkg.tar.* /output/
+            "
+          echo "::endgroup::"
+          ls -la pkg-out/
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-linux-nabu-${{ steps.pkg.outputs.version }}
+          path: pkg-out/*
+          if-no-files-found: error
+
+      - name: Create / update GitHub Release
+        if: ${{ inputs.upload_release == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package="${{ steps.pkg.outputs.package }}"
+          branch="${{ github.ref_name }}"
+          repo="${{ github.repository }}"
+
+          pkgver=$(grep -m1 '^pkgver=' "packages/$package/PKGBUILD" | cut -d= -f2- | tr -d '"')
+          pkgrel=$(grep -m1 '^pkgrel=' "packages/$package/PKGBUILD" | cut -d= -f2- | tr -d '"')
+          if [ -z "$pkgver" ] || [ -z "$pkgrel" ]; then
+            echo "ERROR: could not read pkgver/pkgrel from packages/$package/PKGBUILD" >&2
+            exit 1
+          fi
+
+          if [ "$branch" = "6.18" ]; then
+            tag="v${pkgver}-${pkgrel}"
+          else
+            tag="v${pkgver}-${pkgrel}-${branch}"
+          fi
+          title="linux-nabu ${pkgver}-${pkgrel}"
+          notes=$(printf 'Built from branch `%s` at commit `%s`.\n\n**Packages:**\n' "$branch" "${{ github.sha }}")
+          for f in pkg-out/*.pkg.tar.*; do
+            notes+=$(printf -- '- `%s`\n' "$(basename "$f")")
+          done
+
+          shopt -s nullglob
+          all=(pkg-out/*.pkg.tar.*)
+          kern=()
+          hdr=()
+          for f in "${all[@]}"; do
+            case "$(basename "$f")" in
+              *-headers-*) hdr+=("$f") ;;
+              *)           kern+=("$f") ;;
+            esac
+          done
+          if [ "${#kern[@]}" -eq 0 ] || [ "${#hdr[@]}" -eq 0 ]; then
+            echo "ERROR: expected both a kernel and a headers package, got kernel=${#kern[@]} headers=${#hdr[@]}" >&2
+            exit 1
+          fi
+
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "::group::Release $tag exists - updating assets and description"
+            gh release upload "$tag" --repo "$repo" --clobber "${kern[@]}" "${hdr[@]}"
+            gh release edit "$tag" --repo "$repo" --title "$title" --notes "$notes"
+            echo "::endgroup::"
+          else
+            echo "::group::Creating release $tag"
+            gh release create "$tag" --repo "$repo" --title "$title" --notes "$notes" "${kern[@]}" "${hdr[@]}"
+            echo "::endgroup::"
+          fi
+          gh release view "$tag" --repo "$repo" --json name,url --jq '"[name=\(.name)] url: \(.url)"'
